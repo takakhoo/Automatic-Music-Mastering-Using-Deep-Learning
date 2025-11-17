@@ -15,6 +15,25 @@ The Token U-Net is a 1.08 billion parameter neural network architecture designed
 
 *Complete Token U-Net architecture with encoder-decoder structure, CBAM attention, FiLM modulation, gated skip connections, and multi-head outputs for token prediction and auxiliary tasks.*
 
+---
+
+## Complete Thesis Document
+
+**📄 [View Full Thesis PDF (253 pages)](KHOO_THESIS.pdf)**
+
+The complete 253-page honors thesis document is available for download and contains:
+- Comprehensive literature review and related work
+- Detailed mathematical foundations and architectural descriptions
+- Complete experimental methodology and results
+- Extensive ablation studies and analysis
+- Full bibliography and appendices
+
+**Direct Link:** [KHOO_THESIS.pdf](KHOO_THESIS.pdf) (20.3 MB)
+
+*The thesis provides an in-depth exploration of token-based audio restoration, curriculum learning strategies, and the complete Token U-Net architecture. All figures, equations, and experimental results are thoroughly documented.*
+
+---
+
 **Note:** All visualizations, diagrams, and result images are available in the `thesis_images/` folder for detailed inspection of the architecture, training dynamics, and experimental results.
 
 ---
