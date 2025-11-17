@@ -240,7 +240,8 @@ where $\mathbf{Z} \in \mathbb{R}^{B \times K \times n_q \times T}$ are the predi
 
 The total training loss combines all components:
 
-$$\begin{aligned}
+$$
+\begin{aligned}
 \mathcal{L}_{\text{total}} = &\;
 \mathcal{L}_{\text{CE}} 
 + \lambda_{\text{mask}} \mathcal{L}_{\text{mask}}
@@ -252,7 +253,8 @@ $$\begin{aligned}
 + \lambda_{\text{time}} \mathcal{L}_{\text{time}} 
 + \lambda_{\text{mel}} \mathcal{L}_{\text{mel}} 
 + \lambda_{\text{tok\_spec}} \mathcal{L}_{\text{tok\_spec}}
-\end{aligned}$$
+\end{aligned}
+$$
 
 **Typical weight values:**
 
@@ -419,7 +421,7 @@ Stage advancement is controlled by dual criteria:
    
    $$|\hat{L}_t^{\text{val}} - \hat{L}_{t-k}^{\text{val}}| < \delta$$
    
-   for $p$ consecutive epochs.
+   for $p$ consecutive epochs, where $p$ is a threshold parameter.
    
    Minimum epochs per stage:
    
@@ -431,7 +433,7 @@ Stage advancement is controlled by dual criteria:
    
    $$\sigma(L_{t-n}^{\text{train}}, \dots, L_t^{\text{train}}) < \epsilon$$
    
-   for $n=8$ epochs.
+   for $n=8$ epochs, where $\sigma$ denotes standard deviation and $\epsilon$ is a threshold parameter.
 
 ### Training Configuration
 
