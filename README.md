@@ -255,9 +255,12 @@ $$\begin{aligned}
 \end{aligned}$$
 
 **Typical weight values:**
-- $\lambda_{\text{mask}} = \lambda_{\text{perc}} = \lambda_{\text{gain}} = \lambda_{\text{stereo}} = \lambda_{\text{comp}} = 0.1$
-- $\lambda_{\text{STFT}} = 0.1$, $\lambda_{\text{time}} = 0.1$
-- $\lambda_{\text{mel}} = 0.01$, $\lambda_{\text{tok\_spec}} = 0.05$
+
+$$\lambda_{\text{mask}} = \lambda_{\text{perc}} = \lambda_{\text{gain}} = \lambda_{\text{stereo}} = \lambda_{\text{comp}} = 0.1$$
+
+$$\lambda_{\text{STFT}} = 0.1, \quad \lambda_{\text{time}} = 0.1$$
+
+$$\lambda_{\text{mel}} = 0.01, \quad \lambda_{\text{tok\_spec}} = 0.05$$
 
 ![Auxiliary Losses Over Training](thesis_images/auxiliary_weighted_losses.png)
 
@@ -407,12 +410,28 @@ The training pipeline uses a **curriculum learning** approach where degradations
 Stage advancement is controlled by dual criteria:
 
 1. **Validation Loss Plateau Detection:**
-   - Exponential moving average: $\hat{L}_t^{\text{val}} = \alpha L_t^{\text{val}} + (1 - \alpha)\hat{L}_{t-1}^{\text{val}}$
-   - Plateau detected when: $|\hat{L}_t^{\text{val}} - \hat{L}_{t-k}^{\text{val}}| < \delta$ for $p$ consecutive epochs
-   - Minimum epochs per stage: $t_{\min} = \max(10, \lfloor N_{\text{train}} / 100 \rfloor)$
+   
+   Exponential moving average:
+   
+   $$\hat{L}_t^{\text{val}} = \alpha L_t^{\text{val}} + (1 - \alpha)\hat{L}_{t-1}^{\text{val}}$$
+   
+   Plateau detected when:
+   
+   $$|\hat{L}_t^{\text{val}} - \hat{L}_{t-k}^{\text{val}}| < \delta$$
+   
+   for $p$ consecutive epochs.
+   
+   Minimum epochs per stage:
+   
+   $$t_{\min} = \max(10, \lfloor N_{\text{train}} / 100 \rfloor)$$
 
 2. **Training Loss Stagnation:**
-   - Fallback criterion: $\sigma(L_{t-n}^{\text{train}}, \dots, L_t^{\text{train}}) < \epsilon$ for $n=8$ epochs
+   
+   Fallback criterion:
+   
+   $$\sigma(L_{t-n}^{\text{train}}, \dots, L_t^{\text{train}}) < \epsilon$$
+   
+   for $n=8$ epochs.
 
 ### Training Configuration
 
@@ -431,7 +450,9 @@ Stage advancement is controlled by dual criteria:
 
 #### Optimization
 
-- **Optimizer:** AdamW with $\beta_1=0.9$, $\beta_2=0.999$, weight decay $10^{-4}$
+- **Optimizer:** AdamW with 
+
+$$\beta_1=0.9, \quad \beta_2=0.999, \quad \text{weight decay } 10^{-4}$$
 - **Learning Rate Schedule:** OneCycleLR for Stage 0, CosineAnnealingLR for later stages
 - **Mixed Precision:** FP16 training with automatic mixed precision (AMP)
 - **Gradient Clipping:** L2 norm clipping at threshold 10.0
@@ -440,7 +461,10 @@ Stage advancement is controlled by dual criteria:
 #### Loss Weight Activation
 
 Loss weights are activated progressively:
-- **Stage 0:** Only $\mathcal{L}_{\text{CE}}$
+- **Stage 0:** Only 
+
+$$\mathcal{L}_{\text{CE}}$$
+
 - **Stage 1+:** Audio-domain and auxiliary losses incrementally activated
 - **Stage 3-4:** All loss terms enabled
 
