@@ -650,10 +650,41 @@ The repository includes several baseline implementations for comparison:
 
 ### Data Preparation
 
-1. **Download FMA Medium dataset:**
+1. **Download and Setup FMA Medium dataset:**
+   
+   The Free Music Archive (FMA) dataset is used for training. To install and set it up:
+   
    ```bash
-   # Place FMA Medium dataset in data/raw/fma_medium/fma_medium/
+   # Clone the FMA repository
+   git clone https://github.com/mdeff/fma.git
+   cd fma
+   
+   # Install FMA dependencies
+   pip install --upgrade pip setuptools wheel
+   pip install numpy==1.12.1  # workaround for resampy
+   pip install -r requirements.txt
+   
+   # Download FMA Medium dataset (25,000 tracks, 30s each, 22 GiB)
+   cd data
+   curl -O https://os.unil.cloud.switch.ch/fma/fma_metadata.zip
+   curl -O https://os.unil.cloud.switch.ch/fma/fma_medium.zip
+   
+   # Verify integrity
+   echo "f0df49ffe5f2a6008d7dc83c6915b31835dfe733  fma_metadata.zip" | sha1sum -c -
+   echo "c67b69ea232021025fca9231fc1c7c1a063ab50b  fma_medium.zip"   | sha1sum -c -
+   
+   # Uncompress
+   unzip fma_metadata.zip
+   unzip fma_medium.zip
+   cd ../..
+   
+   # Place FMA Medium dataset in the project's data directory
+   # The expected path is: data/raw/fma_medium/fma_medium/
    ```
+   
+   For more information about the FMA dataset, visit: https://github.com/mdeff/fma
+   
+   **Note:** The FMA Medium dataset contains 25,000 tracks (30 seconds each) across 16 genres, which is ideal for our curriculum learning approach.
 
 2. **Generate curriculum degradation stages:**
    ```bash

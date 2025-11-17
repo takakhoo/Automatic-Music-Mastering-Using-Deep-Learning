@@ -1,0 +1,35 @@
+# Core Deep Learning
+torch>=2.0.0
+torchaudio>=2.0.0
+torchvision>=0.15.0
+
+# Audio Processing
+librosa>=0.10.0
+soundfile>=0.12.0
+scipy>=1.10.0
+
+# Data Processing
+numpy>=1.24.0
+pandas>=2.0.0
+
+# Visualization
+matplotlib>=3.7.0
+
+# Progress Bars
+tqdm>=4.65.0
+
+# Tensor Operations
+einops>=0.6.0
+
+# Utilities
+pathlib2>=2.3.7; python_version < '3.4'
+
+# FMA Dataset Support
+# Install from: https://github.com/mdeff/fma
+# git clone https://github.com/mdeff/fma.git
+# cd fma
+# pip install -r requirements.txt
+
+# EnCodec (install from externals/encodec)
+# cd externals/encodec
+# pip install -e .
