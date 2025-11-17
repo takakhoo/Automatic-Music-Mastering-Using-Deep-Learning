@@ -1,279 +1,760 @@
-# Automatic Music Mastering Using Deep Learning by Taka Khoo
+# Token U-Net: Neural Audio Codec Remastering for Full-Mix Music Restoration
 
 **Honors Thesis Project for ENGS 88 at Dartmouth College**  
+**Author:** Taka Khoo  
 **Primary Advisor:** Peter Chin  
-**Secondary Consultant:** Michael Casey  
-**Student:** Taka Khoo
+**Secondary Consultant:** Michael Casey
 
 ---
 
-## Overview
+## Table of Contents
 
-This project tackles the challenging problem of **automatic music mastering**—the final stage in audio post-production where subtle adjustments to dynamics, frequency balance, spatial imaging, and spectral content are applied to create a polished, professional sound. Our goal is to develop a deep learning system that can transform a degraded, "demastered" audio track into a professionally mastered version, mimicking the effect of human audio engineers.
-
-The project is structured into two primary stages:  
-1. **Paired Data Generation (Demastering Pipeline):**  
-   High-quality (mastered) audio tracks are artificially degraded using a sequence of signal processing operations. This creates paired datasets where the input is the degraded audio (demastered) and the target is the original mastered version.
-2. **Neural Network Training and Evaluation:**  
-   A deep neural network is trained to learn the mapping from degraded to mastered audio. Our network takes a time–frequency representation (specifically, mel-spectrograms) as input and outputs either a restored spectrogram or a set of processing parameters that drive a differentiable audio-processing pipeline.
-
-*Note:* At present, our evaluation script (`src/evaluate.py`) uses a Griffin–Lim inversion method to convert mel spectrograms back to audio. More advanced vocoders (such as MelGAN) are under consideration for future work.
+1. [Introduction](#introduction)
+2. [Problem Statement](#problem-statement)
+3. [Architecture Overview](#architecture-overview)
+4. [Mathematical Foundations](#mathematical-foundations)
+5. [Dataset and Preprocessing](#dataset-and-preprocessing)
+6. [Training Pipeline](#training-pipeline)
+7. [Evaluation and Results](#evaluation-and-results)
+8. [Code Structure](#code-structure)
+9. [Usage Guide](#usage-guide)
+10. [Future Work](#future-work)
 
 ---
 
-## Current System Components
+## Introduction
 
-### 1. Demastering Pipeline & Data Generation
+### Motivation
 
-#### Data Source
+Over the past decade, music production has become increasingly democratized. Affordable digital tools and platforms like TikTok and SoundCloud have empowered countless bedroom producers to create and share music globally. However, achieving a polished, professional sound remains a significant challenge. Mixing and especially finalizing audio for clarity, loudness, and playback consistency remains a black box for many creators.
 
-- **Dataset:** We use the **FMA Small** dataset, which contains thousands of 30-second music clips under Creative Commons licenses. This serves as a basis for creating our paired dataset.
-- **Directory Structure:**  
+Most creators work with a final bounced mix, where all effects are flattened into a single stereo file, leaving no room for detailed post-production. Conventional post-production workflows often depend on access to individual stems and the expertise of trained engineers using specialized hardware or software. However, the majority of modern creators only have access to a single stereo mix—often recorded in non-ideal conditions—and lack the tools or knowledge to perform nuanced adjustments.
 
+This thesis addresses a critical gap: **Can we design a system that restores and enhances fully mixed music audio, even when it is degraded and stemless, in a generalizable, accessible way?**
 
+### Vision for Accessible Audio Intelligence
 
-project_root/ data/ raw/ # Raw FMA tracks (organized by folders, e.g., 001, 002, etc.) experiments/ output_full/ output_audio/ # Paired original and degraded WAV files output_spectrograms/ # Spectrogram images (PNG) of both versions output_txt/ # Text files describing the degradations (e.g., EQ, compression parameters)
+This work imagines a future where intelligent audio cleanup, handling things like echo, muddiness, or reverb, is available to any creator, regardless of environment or experience. Our system, which combines token representations, curriculum learning, and perceptually aligned objectives, aims to move beyond hand-crafted signal chains and towards learned audio enhancement built for realism and accessibility.
 
-#### Processing Steps
+---
 
-1. **Audio Loading and Clipping:**  
- Each track is loaded (mono) and clipped to the range [-1.0, 1.0] to ensure safe processing.
+## Problem Statement
 
-2. **Mel Spectrogram Computation:**  
- The mel spectrogram is computed using:
- 
- \[
- \text{mel\_spec} = \text{LibrosaFeature.melspectrogram}(y, \text{sr}=44100, \text{n\_fft}=2048, \text{hop\_length}=512, \text{n\_mels}=128)
- \]
- 
- Then, conversion to a decibel (dB) scale is performed:
- 
- \[
- \text{mel\_spec\_db} = 10 \cdot \log_{10}(\text{mel\_spec} + \epsilon)
- \]
- 
- where \(\epsilon = 1e-6\) prevents \(\log(0)\). Finally, the spectrogram is normalized to the \([0, 1]\) range using:
- 
- \[
- \text{normalized} = \frac{\text{mel\_spec\_db} - \min(\text{mel\_spec\_db})}{\max(\text{mel\_spec\_db}) - \min(\text{mel\_spec\_db}) + \epsilon}
- \]
+### Research Problem
 
-3. **Artificial Degradations:**  
- The demastering process applies several effects in sequence:
- - **EQ:** Modeled as a Gaussian filter:
+**How can we restore and enhance fully mixed music audio - without access to stems, without expert supervision, and without manual DSP intervention - using a deep learning system that generalizes between genres, degradations, and real-world recording conditions?**
+
+Fully mixed music tracks, or "bounced" files, embed not just the instruments and vocals but also every EQ curve, compression setting, reverb trail, and gain adjustment applied during mixing. Once exported, these effects are irreversibly entangled in the final waveform. Unlike speech, music is diverse in genre, instrumentation, tempo, and timbre, making the problem more difficult and much less studied when approached without source separation.
+
+### Compounding Challenges
+
+1. **No ground truth stems:** Most users have no access to isolated instrument or vocal tracks.
+2. **Entangled effects:** Artifacts are non-linear and inseparable, invalidating additive noise models.
+3. **Non-professional conditions:** Audio may be clipped, distorted, or captured on consumer-grade equipment.
+4. **No definitive target:** Multiple "clean" versions may be equally perceptually valid, complicating supervision.
+
+Most importantly, restoration must be **feasible**: it must operate on accessible hardware, provide interpretable outputs, and outperform existing approaches in perceptual quality and objective metrics.
+
+### The Research Gap
+
+While speech enhancement and stem-based mastering have received substantial attention, **there is no state-of-the-art system specifically designed to restore fully mixed, stemless music recordings under real-world conditions**. Most related work targets isolated effects or speech; none operate together in all five effects on degraded music without stems.
+
+---
+
+## Architecture Overview
+
+### Token-Based Representation
+
+The core innovation of this work is operating entirely in **discrete token space** using Meta AI's EnCodec. Rather than predicting waveforms or spectrograms directly, our model learns to map degraded token sequences to clean token sequences.
+
+#### Why Tokens?
+
+1. **Compression and Speed:** A 30-second stereo clip is reduced to only a $[16 \times 2250]$ token matrix, allowing fast training and GPU-efficient batching.
+2. **Semantic Abstraction:** Tokens encode perceptual features such as timbre, attack, stereo width, and distortion.
+3. **Multi-Effect Compatibility:** EnCodec tokens reflect all aspects of musical structure, serving as a universal substrate for learning simultaneous restoration tasks.
+4. **Phase Preservation:** Unlike spectrograms, tokens preserve phase information implicitly through the EnCodec decoder.
+
+#### EnCodec Configuration
+
+- **Sample Rate:** 48,000 Hz (decoded), 22.05 kHz (training input)
+- **Frame Rate:** 75 fps
+- **Codebooks:** 16 RVQ stages
+- **Codebook Size:** 1024 entries per codebook
+- **Token Shape:** $[16 \times 2250]$ for 30-second clips
+- **Total Bandwidth:** 24 kbps (stereo)
+
+### Token U-Net Architecture
+
+The Token U-Net is a 1.08 billion parameter U-Net architecture specifically designed for token-to-token enhancement:
+
+#### Core Components
+
+1. **Residual Blocks with GroupNorm and GELU:**
+   $$
+   \mathbf{y} = \mathbf{x} + \mathcal{F}(\mathbf{x})
+   $$
+   where $\mathcal{F}$ is a nonlinear transformation with GroupNorm (8 groups) and GELU activations.
+
+2. **CBAM (Convolutional Block Attention Module):**
+   - **Channel Attention:**
+     $$
+     \mathbf{z}_c = \text{GAP}(\mathbf{x}) = \frac{1}{T} \sum_{t=1}^T \mathbf{x}_{:, t}
+     $$
+     $$
+     \mathbf{w}_c = \sigma(W_2 \cdot \text{ReLU}(W_1 \cdot \mathbf{z}_c)) \in (0,1)^C
+     $$
+   - **Temporal Attention:**
+     $$
+     \mathbf{z}_s = \sigma(\text{Conv1D}([\text{Avg}(\mathbf{x}); \text{Max}(\mathbf{x})])) \in (0,1)^T
+     $$
+   - **Final Output:**
+     $$
+     \mathbf{x}' = \mathbf{x} \odot \mathbf{w}_c \odot \mathbf{w}_s
+     $$
+
+3. **FiLM (Feature-wise Linear Modulation):**
+   $$
+   \text{FiLM}(\mathbf{x}) = \gamma \cdot \mathbf{x} + \beta
+   $$
+   where $\gamma, \beta \in \mathbb{R}^{C \times 1}$ are learned affine parameters.
+
+4. **Learnable Scalar Skip Gates:**
+   $$
+   \mathbf{x}^{(i)}_{\text{dec}} \leftarrow \mathbf{x}^{(i)}_{\text{dec}} + \sigma(g_i) \cdot \text{Crop}(\mathbf{x}^{(i)}_{\text{enc}})
+   $$
+   Each $g_i$ is a learned scalar parameter, passed through a sigmoid to constrain it to $(0,1)$.
+
+5. **Temporal Context Block (Dilated Convolution):**
+   $$
+   \mathbf{x}_{\text{context}} = \text{Conv1D}(\mathbf{x}; k=9, \text{dilation}=2, \text{padding}=8)
+   $$
+   This expands the effective receptive field without additional layers, enabling long-range dependency modeling for reverb tails and echo patterns.
+
+#### Dimensional Flow
+
+- **Input:** $[B, 16, T]$ token sequences
+- **Embedding:** $[B, 16, T] \rightarrow [B, 384, T]$ via learned embeddings and projection
+- **Encoder Stages** (with channel doubling and halved time resolution):
+  - $E_1: [384 \rightarrow 768]$ $(T \rightarrow T/2)$
+  - $E_2: [768 \rightarrow 1536]$ $(T/2 \rightarrow T/4)$
+  - $E_3: [1536 \rightarrow 3072]$ $(T/4 \rightarrow T/8)$
+  - $E_4: [3072 \rightarrow 6144]$ $(T/8 \rightarrow T/16)$
+- **Bottleneck:** $[6144 \rightarrow 6144]$ with CBAM, FiLM, residuals, and temporal context
+- **Decoder Stages** (with upsampling and gated skip connections):
+  - $D_1: [6144 \rightarrow 3072]$ $(T/16 \rightarrow T/8)$
+  - $D_2: [3072 \rightarrow 1536]$ $(T/8 \rightarrow T/4)$
+  - $D_3: [1536 \rightarrow 768]$ $(T/4 \rightarrow T/2)$
+  - $D_4: [768 \rightarrow 384]$ $(T/2 \rightarrow T)$
+- **Output:** $[B, 1024, 16, T]$ logits for all codebooks
+
+#### Multi-Head Output Architecture
+
+The model includes five specialized auxiliary heads:
+
+1. **Token Logit Head:** Primary prediction head producing $[B, 1024, 16, T]$ logits
+2. **Mask Head:** Dereverberation mask $\hat{\mathbf{M}} \in [0,1]^{B \times 16 \times T}$
+3. **Gain Head:** Global gain correction $g \in \mathbb{R}^{B \times 1}$
+4. **Compression Head:** Dynamics statistics $c \in \mathbb{R}^{B \times 2}$ (RMS deviation, crest factor)
+5. **Stereo Head:** Spatial imaging $s \in \mathbb{R}^{B \times 2}$ (phase coherence, width)
+6. **Perceptual Head:** Quality embedding $\hat{\mathbf{p}} \in \mathbb{R}^{B \times 8}$
+
+---
+
+## Mathematical Foundations
+
+### EnCodec Tokenization
+
+EnCodec performs $K$-stage residual vector quantization to discretize continuous latent embeddings:
+
+$$
+z_t \approx \sum_{k=1}^{K} c_k[q_k(z_t)]
+$$
+
+where $q_k(z_t)$ is the index of the codebook (token) in stage $k$, and $N$ is the number of centroids per codebook (typically $N = 1024$). This produces a token matrix:
+
+$$
+\text{tokens} \in \mathbb{Z}^{K \times T}
+$$
+
+The effective bit rate is:
+
+$$
+B = \frac{K \cdot \log_2(N) \cdot r}{1000}
+$$
+
+For our configuration: $B = \frac{16 \cdot 10 \cdot 75}{1000} = 12.0$ kbps per channel, or 24 kbps for stereo.
+
+### Loss Functions
+
+#### Primary Token Cross-Entropy Loss
+
+$$
+\mathcal{L}_{\text{CE}} = \frac{1}{B \cdot n_q \cdot T} \sum_{b=1}^{B} \sum_{q=1}^{n_q} \sum_{t=1}^{T} \text{CE}\big(\mathbf{Z}_{b,:,q,t}, \mathbf{Y}_{b,q,t} \big)
+$$
+
+where $\mathbf{Z} \in \mathbb{R}^{B \times K \times n_q \times T}$ are the predicted logits and $\mathbf{Y} \in \mathbb{Z}^{B \times n_q \times T}$ are the target tokens.
+
+#### Auxiliary Losses
+
+1. **Mask Head Loss (Dereverberation):**
+   $$
+   \mathcal{L}_{\text{mask}} = \frac{1}{B \cdot n_q \cdot T} \sum_{b,q,t} \text{BCE}(\hat{\mathbf{M}}_{b,q,t}, \mathbf{M}_{b,q,t})
+   $$
+
+2. **Gain Head Loss:**
+   $$
+   \mathcal{L}_{\text{gain}} = \frac{1}{B} \sum_{b=1}^{B} (g_b - g_b^*)^2
+   $$
+
+3. **Compression Head Loss:**
+   $$
+   \mathcal{L}_{\text{comp}} = \| c - c^* \|_2^2
+   $$
+
+4. **Stereo Head Loss:**
+   $$
+   \mathcal{L}_{\text{stereo}} = \| s - s^* \|_2^2
+   $$
+
+5. **Perceptual Head Loss:**
+   $$
+   \mathcal{L}_{\text{perc}} = \frac{1}{B} \sum_{b=1}^{B} \left\| \hat{\mathbf{p}}_b - \mathbf{p}_b \right\|_2^2
+   $$
+
+6. **Mel Spectrogram Loss:**
+   $$
+   \mathcal{L}_{\text{mel}} = \| \log(\hat{M} + \epsilon) - \log(M + \epsilon) \|_1
+   $$
+
+7. **STFT Spectral Loss:**
+   $$
+   \mathcal{L}_{\text{STFT}} = \frac{1}{B} \sum_{b=1}^{B} \left\| |\text{STFT}(\hat{y}_b)| - |\text{STFT}(y_b)| \right\|_2^2
+   $$
+
+#### Combined Loss Function
+
+$$
+\begin{aligned}
+\mathcal{L}_{\text{total}} = &\;
+\mathcal{L}_{\text{CE}} 
++ \lambda_{\text{mask}} \mathcal{L}_{\text{mask}}
++ \lambda_{\text{perc}} \mathcal{L}_{\text{perc}} \\
+& + \lambda_{\text{gain}} \mathcal{L}_{\text{gain}}
++ \lambda_{\text{stereo}} \mathcal{L}_{\text{stereo}}
++ \lambda_{\text{comp}} \mathcal{L}_{\text{comp}} \\
+& + \lambda_{\text{STFT}} \mathcal{L}_{\text{STFT}}
++ \lambda_{\text{time}} \mathcal{L}_{\text{time}} 
++ \lambda_{\text{mel}} \mathcal{L}_{\text{mel}} 
++ \lambda_{\text{tok\_spec}} \mathcal{L}_{\text{tok\_spec}}
+\end{aligned}
+$$
+
+Typical weight values:
+- $\lambda_{\text{mask}} = \lambda_{\text{perc}} = \lambda_{\text{gain}} = \lambda_{\text{stereo}} = \lambda_{\text{comp}} = 0.1$
+- $\lambda_{\text{STFT}} = 0.1$, $\lambda_{\text{time}} = 0.1$
+- $\lambda_{\text{mel}} = 0.01$, $\lambda_{\text{tok\_spec}} = 0.05$
+
+### Audio Degradation Models
+
+#### Equalization (EQ)
+
+A parametric EQ filter is modeled as:
+
+$$
+H_{\text{eq}}(f) = 1 + \frac{G}{1 + jQ\left( \frac{f}{f_0} - \frac{f_0}{f} \right)}
+$$
+
+with parameters:
+- Center frequency: $f_c \sim \mathcal{U}(300, 5000)$ Hz
+- Quality factor: $Q \sim \mathcal{U}(0.5, 2.0)$
+- Gain: $g \sim \mathcal{U}(-6, +6)$ dB
+
+#### Dynamic Range Compression
+
+A soft-knee compressor:
+
+$$
+y(t) = 
+\begin{cases}
+x(t), & \text{if } |x(t)| < \theta \\
+\theta + \frac{|x(t)| - \theta}{r}, & \text{otherwise}
+\end{cases}
+$$
+
+with parameters:
+- Threshold: $\theta \sim \mathcal{U}(-24, -6)$ dB
+- Ratio: $r \sim \mathcal{U}(1.5, 4.0)$
+- Makeup gain: $m \sim \mathcal{U}(0, 3)$ dB
+
+#### Reverb
+
+Convolution with an exponentially decaying impulse response:
+
+$$
+x_{\text{reverb}}(t) = (x * h_{\text{IR}})(t)
+$$
+
+where $h_{\text{IR}} \sim \text{exponential decay}$ with:
+- Decay constant: $\tau \sim \mathcal{U}(0.2, 1.0)$
+- Impulse duration: $T \sim \mathcal{U}(50, 400)$ ms
+
+#### Echo
+
+Delayed and attenuated copy of the signal:
+
+$$
+x_{\text{echo}}(t) = x(t) + \alpha \cdot x(t - \tau)
+$$
+
+with parameters:
+- Delay: $\tau \sim \mathcal{U}(100, 250)$ ms
+- Attenuation: $\alpha \sim \mathcal{U}(0.1, 0.5)$
+
+#### Gain Mismatch
+
+Simple global amplitude scaling:
+
+$$
+\tilde{x}[n] = 10^{g/20} \cdot x[n], \quad g \sim \mathcal{U}(-3, +3) \text{ dB}
+$$
+
+---
+
+## Dataset and Preprocessing
+
+### Dataset Selection: FMA Medium
+
+We use the **Free Music Archive (FMA) Medium** dataset, which contains 25,000 tracks (30 seconds each) across 16 genres. This dataset is ideal because:
+
+1. **Realistic Content:** Contains naturally produced or recorded bounced stereo tracks, often lacking professional mastering
+2. **Diversity:** Spans genres, instrumentation, production styles, and loudness profiles
+3. **Accessibility:** Creative Commons licensed, suitable for academic use
+4. **Standardized Format:** Fixed 30-second segments at 22.05 kHz
+
+### Curriculum Degradation Stages
+
+Our training curriculum consists of five progressively difficult stages:
+
+1. **Stage 0 – Identity:** Clean audio paired with itself; model must reconstruct tokens exactly
+2. **Stage 1 – Single Effect:** One degradation (EQ, gain, compression, reverb, or echo)
+3. **Stage 2 – Double Effects:** Two degradations applied in random order
+4. **Stage 3 – Triple Effects:** Three randomly selected effects
+5. **Stage 4 – Full Random:** Up to five simultaneous degradations
+
+Stages 3 and 4 have "stronger" variants with widened parameter ranges to enforce generalization.
+
+### Precomputed Token Bundles (.pt Files)
+
+Each audio pair is preprocessed into a structured PyTorch `.pt` file containing:
+
+- **X, Y:** Tokenized degraded and clean inputs $\in \mathbb{Z}^{n_q \times T}$
+- **scales:** Per-frame scale factors from EnCodec $\in \mathbb{R}^{T}$
+- **Y_stft_mag:** STFT magnitudes of clean audio $\in \mathbb{R}^{n_q \times F \times T}$ (FP16)
+- **mel_spec:** Mel spectrogram of clean waveform $\in \mathbb{R}^{M \times T}$ (FP16)
+- **metadata:** Sample rate, bandwidth, degradation parameters, SHA-256 hashes
+- **wav_o, wav_m:** Cached original and degraded waveforms (optional)
+
+This "frozen lunchbox" design enables:
+- **40× speedup** in data loading compared to on-the-fly encoding
+- Full reproducibility via SHA-256 hashes
+- Support for all loss functions without recomputation
+
+### Preprocessing Pipeline
+
+1. **Audio Loading:** Load 30-second clips, resample to 22.05 kHz, normalize to peak amplitude -1.0 dBFS
+2. **Degradation Application:** Apply randomly sampled effects from the current curriculum stage
+3. **EnCodec Tokenization:** Encode both clean and degraded audio to 48 kHz tokens at 24 kbps
+4. **Feature Extraction:** Compute STFT magnitudes, mel spectrograms, and auxiliary statistics
+5. **Serialization:** Save all features to `.pt` files with comprehensive metadata
+
+---
+
+## Training Pipeline
+
+### Curriculum Learning Strategy
+
+The training pipeline uses a **curriculum learning** approach where degradations are progressively introduced based on difficulty. This ensures:
+
+1. **Stable Convergence:** Model learns simple restorations before complex ones
+2. **Better Generalization:** Gradual exposure prevents overfitting to specific degradation patterns
+3. **Interpretable Progress:** Each stage builds on previous knowledge
+
+### Stage Advancement Logic
+
+Stage advancement is controlled by dual criteria:
+
+1. **Validation Loss Plateau Detection:**
+   - Exponential moving average: $\hat{L}_t^{\text{val}} = \alpha L_t^{\text{val}} + (1 - \alpha)\hat{L}_{t-1}^{\text{val}}$
+   - Plateau detected when: $|\hat{L}_t^{\text{val}} - \hat{L}_{t-k}^{\text{val}}| < \delta$ for $p$ consecutive epochs
+   - Minimum epochs per stage: $t_{\min} = \max(10, \lfloor N_{\text{train}} / 100 \rfloor)$
+
+2. **Training Loss Stagnation:**
+   - Fallback criterion: $\sigma(L_{t-n}^{\text{train}}, \dots, L_t^{\text{train}}) < \epsilon$ for $n=8$ epochs
+
+### Training Configuration
+
+#### Stage-Specific Hyperparameters
+
+| Stage | Dropout | Bottleneck | Max LR | Epochs |
+|-------|---------|------------|--------|--------|
+| Stage 0 | 0.00 | False | 5e-4 | 15 (fixed) |
+| Stage 1 | 0.00 | True | 4e-5 | Variable |
+| Stage 1 Stronger | 0.00 | True | 3e-5 | Variable |
+| Stage 2 | 0.05 | True | 2e-5 | Variable |
+| Stage 3 | 0.08 | True | 1.5e-5 | Variable |
+| Stage 3 Stronger | 0.10 | True | 1e-5 | Variable |
+| Stage 4 | 0.15 | True | 8e-6 | Variable |
+| Stage 4 Stronger | 0.15 | True | 5e-6 | Variable |
+
+#### Optimization
+
+- **Optimizer:** AdamW with $\beta_1=0.9$, $\beta_2=0.999$, weight decay $10^{-4}$
+- **Learning Rate Schedule:** OneCycleLR for Stage 0, CosineAnnealingLR for later stages
+- **Mixed Precision:** FP16 training with automatic mixed precision (AMP)
+- **Gradient Clipping:** L2 norm clipping at threshold 10.0
+- **Batch Size:** Adaptive, starting at 4, increasing up to 32 based on memory
+
+#### Loss Weight Activation
+
+Loss weights are activated progressively:
+- **Stage 0:** Only $\mathcal{L}_{\text{CE}}$
+- **Stage 1+:** Audio-domain and auxiliary losses incrementally activated
+- **Stage 3-4:** All loss terms enabled
+
+### Training Infrastructure
+
+#### Hardware
+
+- **Primary:** NVIDIA RTX 6000 Ada (48 GB VRAM)
+- **Development:** NVIDIA RTX 3070 Ti (8 GB VRAM)
+
+#### Robustness Features
+
+1. **OOM Recovery:** Automatic batch size reduction and checkpoint resumption
+2. **NaN Detection:** Gradient monitoring and automatic recovery
+3. **Checkpointing:** Every 5-10 epochs, plus best model tracking
+4. **Audio Logging:** Periodic audio samples for perceptual validation
+5. **Comprehensive Logging:** CSV logs, JSON metrics, visualization plots
+
+---
+
+## Evaluation and Results
+
+### Quantitative Metrics
+
+We evaluate restoration quality using multiple metrics:
+
+1. **SNR (Signal-to-Noise Ratio):**
+   $$
+   \text{SNR}(x, \hat{x}) = 10 \cdot \log_{10} \left( \frac{\sum_t x(t)^2}{\sum_t (x(t) - \hat{x}(t))^2} \right)
+   $$
+
+2. **PESQ (Perceptual Evaluation of Speech Quality):** ITU-T P.862-based, range $[-0.5, 4.5]$
+
+3. **STOI (Short-Time Objective Intelligibility):**
+   $$
+   \text{STOI}(x, \hat{x}) = \frac{1}{K} \sum_{k=1}^{K} \text{corr}(x_k, \hat{x}_k)
+   $$
+
+4. **ERLE (Echo Return Loss Enhancement):**
+   $$
+   \text{ERLE}(t) = 10 \cdot \log_{10} \left( \frac{\mathbb{E}[y^2(t)]}{\mathbb{E}[\hat{e}^2(t)]} \right)
+   $$
+
+### Performance Summary
+
+#### Comparison with Baselines
+
+| Method | SNR ↑ | PESQ ↑ | STOI ↑ | Avg Score |
+|--------|-------|--------|--------|-----------|
+| **Token U-Net (Ours)** | **13.1** | **3.40** | **0.89** | **0.786** |
+| DeepVQE | 14.1 | 3.41 | 0.91 | 0.775 |
+| 2-Stage U-Net | 13.8 | 3.43 | 0.92 | 0.697 |
+| Mimilakis DRC | 12.2 | 3.12 | - | 0.678 |
+
+#### Per-Effect Performance
+
+| Effect | Token U-Net | DeepVQE | Specialist Best |
+|--------|-------------|---------|-----------------|
+| EQ | 0.84 | 0.75 | 0.86 (Smit EQ) |
+| Gain | 0.88 | 0.76 | - |
+| Compression | 0.82 | 0.81 | 0.89 (Mimilakis) |
+| Reverb | 0.80 | **0.85** | 0.91 (Speech Dereverb) |
+| Echo | 0.83 | 0.84 | 0.89 (Li Echo) |
+
+**Key Findings:**
+- Token U-Net achieves balanced performance across all effects
+- Specialist models excel on their target effect but underperform on others
+- Token U-Net shows lowest variance (0.047) and highest robustness index (0.7883)
+
+### Qualitative Results
+
+Listening tests on 30 tracks with mixed degradations revealed:
+
+- **Increased transient clarity** compared to spectrogram-based U-Nets
+- **Better stereo field preservation** and panning accuracy
+- **Less "pumping" or spectral smearing** under heavy compression and reverb
+- **More natural reverberation tails** when restoration fails (graceful degradation)
+
+---
+
+## Code Structure
+
+### Core Modules
+
+```
+src/
+├── token_unet.py          # Main Token U-Net architecture
+├── token_train.py         # Curriculum-aware training script
+├── token_dataset.py       # PyTorch dataset for token pairs
+├── token_inference.py     # Inference and evaluation script
+├── precompute_tokens.py   # Token precomputation pipeline
+├── demastering.py         # Audio degradation generation
+├── token_utils.py         # Utility functions
+├── token_constants.py     # Constants and configuration
+├── token_train_utils.py   # Training helper functions
+├── token_data_utils.py    # Data loading utilities
+├── token_plot_utils.py    # Visualization utilities
+└── token_baseline.py      # Baseline model implementations
+```
+
+### Key Classes and Functions
+
+#### `TokenUNet` (token_unet.py)
+
+Main model class implementing the 1.08B parameter U-Net:
+
+```python
+class TokenUNet(nn.Module):
+    def __init__(self, n_q: int, k: int = 1024, base_dim: int = 384, 
+                 depth: int = 4, checkpointing: bool = False, 
+                 use_bottleneck: bool = False, dropout: float = 0.10):
+        # Architecture initialization
+```
+
+**Key Methods:**
+- `forward(x)`: Forward pass returning logits and auxiliary outputs
+- `set_dropout(dropout)`: Dynamically adjust dropout rate
+- `get_num_params()`: Return parameter count
+
+#### `TokenPairDataset` (token_dataset.py)
+
+PyTorch Dataset for loading precomputed token pairs:
+
+```python
+class TokenPairDataset(Dataset):
+    def __init__(self, base_dir, stages=None, model_type="48khz", 
+                 bandwidth=24.0, force_audio=False, return_specs=False, 
+                 return_meta=False, cache_wav=False):
+        # Dataset initialization
+```
+
+**Key Features:**
+- Loads from precomputed `.pt` files or encodes on-the-fly
+- Supports multiple curriculum stages
+- Returns tokens, scales, spectrograms, and metadata
+
+#### Training Script (token_train.py)
+
+Main training loop with curriculum learning:
+
+```python
+def train_curriculum(args):
+    # Stage-by-stage training with automatic advancement
+    # OOM recovery, NaN handling, checkpointing
+    # Comprehensive logging and visualization
+```
+
+### Experimental Baselines
+
+The repository includes several baseline implementations:
+
+1. **Baseline Test/:** Early spectrogram-based U-Net experiments
+2. **DeepUnet & LSTM src/:** Deep U-Net with LSTM parameter prediction
+3. **CBAMFiLMUNet + InvLSTM src/:** U-Net with CBAM, FiLM, and inverse LSTM
+4. **VocoderUNet & LSTM src/:** U-Net with neural vocoder integration
+5. **GriffinLimNetTraining/:** Griffin-Lim based spectrogram inversion
+
+---
+
+## Usage Guide
+
+### Installation
+
+1. **Clone the repository:**
+   ```bash
+   git clone https://github.com/takakhoo/AI_Neural_AudioCodec_Remastering.git
+   cd AI_Neural_AudioCodec_Remastering
+   ```
+
+2. **Install dependencies:**
+   ```bash
+   pip install -r requirements.txt
+   ```
+
+3. **Install EnCodec:**
+   ```bash
+   cd externals/encodec
+   pip install -e .
+   cd ../..
+   ```
+
+### Data Preparation
+
+1. **Download FMA Medium dataset:**
+   ```bash
+   # Place FMA Medium dataset in data/raw/fma_medium/fma_medium/
+   ```
+
+2. **Generate curriculum degradation stages:**
+   ```bash
+   # Stage 0 (Identity)
+   python src/demastering.py --stage 0 --seed 42
    
-   \[
-   R(f, t) = 1 + G(t) \cdot e^{-\frac{(f - f_c(t))^2}{2\left(\frac{f_c(t)}{Q(t)}\right)^2}}
-   \]
+   # Stage 1 (Single effect)
+   python src/demastering.py --stage 1 --seed 42
    
-   Here, \(f_c(t)\), \(Q(t)\), and \(G(t)\) (center, quality factor, and gain) are randomly sampled for each time frame.
-   
- - **Dynamic Range Compression:**  
-   A differentiable compressor simulates soft-knee behavior:
-   
-   \[
-   \text{compressed\_level} = \text{threshold} + \frac{L - \text{threshold}}{\text{ratio}}
-   \]
-   
-   with additional makeup gain applied.
-   
- - **Reverb and Echo:**  
-   Convolution with an exponentially decaying impulse response simulates reverb; echo is produced by delaying and attenuating a copy of the signal.
+   # Stage 3 with stronger parameters
+   python src/demastering.py --stage 3 --stronger --seed 42
+   ```
 
-4. **Output Files:**  
- For each track, the pipeline saves:
- - The **original (mastered)** and **degraded (demastered)** audio files (WAV).
- - **Spectrogram images** showing both versions.
- - **Parameter files** detailing the exact processing parameters applied.
+3. **Precompute tokens:**
+   ```bash
+   python src/precompute_tokens.py --stage stage0_identity
+   python src/precompute_tokens.py --stage stage1_single
+   # ... repeat for all stages
+   ```
 
----
+### Training
 
-### 2. Neural Network Training Pipeline
+**Full curriculum training:**
+```bash
+python src/token_train.py \
+    --base_dir experiments/curriculums \
+    --output_dir CurriculumTraining \
+    --resume_from_checkpoint path/to/checkpoint.pt  # Optional
+```
 
-#### Input/Output Representations
+**Train until specific stage:**
+```bash
+python src/token_train.py \
+    --base_dir experiments/curriculums \
+    --output_dir CurriculumTraining \
+    --until_stage stage3_triple
+```
 
-- **Input:**  
-The model works on mel spectrograms computed as above (128 channels, normalized to \([0, 1]\)). These spectrograms capture both frequency and temporal patterns using the Short-Time Fourier Transform (STFT) followed by a mel filter bank conversion.
+**Key training arguments:**
+- `--base_dir`: Directory containing curriculum stage folders
+- `--output_dir`: Output directory for checkpoints and logs
+- `--resume_from_checkpoint`: Path to checkpoint for resuming
+- `--until_stage`: Stop training at specified stage
+- `--batch_size`: Initial batch size (default: 4)
+- `--num_workers`: Data loading workers (default: 4)
 
-- **Output:**  
-There are two modes:
-1. **Direct Restoration:** The network (a U-Net architecture) maps the degraded spectrogram directly to a restored version.
-2. **Parameter Prediction:** A forecasting module (LSTM) predicts a set of effect parameters for each time frame, which are then used in a differentiable audio processing chain to reconstruct the mastered sound.
+### Inference
 
-#### Network Architecture
+**Run inference on a stage:**
+```bash
+python src/token_inference.py \
+    --checkpoint path/to/best_model.pt \
+    --stage_dir experiments/curriculums/stage4_full_stronger \
+    --output_dir Inference_Results/stage4
+```
 
-- **U-Net Module:**  
-The U-Net is an encoder–decoder network with skip connections. Its encoder uses convolutional layers with batch normalization and ReLU activations to extract hierarchical features, while the decoder upsamples and fuses these features to reconstruct the spectrogram.
+**External audio inference:**
+```bash
+python external_inference.py \
+    --checkpoint path/to/best_model.pt \
+    --input_audio path/to/degraded_audio.wav \
+    --output_audio path/to/restored_audio.wav
+```
 
-- **LSTM Forecasting:**  
-A single-layer LSTM predicts per-timeframe effect parameters (such as gain, EQ parameters, compressor settings, reverb decay, echo delay, and attenuation). The forecasted parameters are then clamped to plausible ranges.
+### Evaluation
 
-- **Loss Functions:**  
-The loss is a weighted combination of:
-- **Spectrogram Loss:** \(L_{spectro} = \|S_{\text{pred}} - S_{\text{target}}\|_1\)
-- **Parameter Loss:** \(L_{param} = \|P_{\text{pred}} - P_{\text{target}}\|_2^2\) (Note: In practice, the predicted parameters are used as a pseudo-ground-truth since we lack exact targets.)
-- **Perceptual Loss:** Additional L1 loss computed on perceptually scaled spectrograms.
-
-The total loss is:
-
-\[
-L_{\text{total}} = \lambda_{1} L_{\text{spectro}} + \lambda_{2} L_{\text{param}} + \lambda_{3} L_{\text{perceptual}}
-\]
-
-where \(\lambda_i\) are empirically tuned weights.
-
-#### Training Process
-
-- **Dataset:**  
-A custom PyTorch Dataset (in `src/dataset.py`) loads paired spectrograms from the demastering pipeline.
-
-- **Training Script:**  
-The training loop in `src/train.py` handles batching (with appropriate padding for variable-length time dimensions), loss computation, and learning rate scheduling (with ReduceLROnPlateau to monitor validation loss). Checkpoints and loss plots are saved for analysis.
-
----
-
-### 3. Evaluation Pipeline
-
-The evaluation script (`src/evaluate.py`) performs the following steps:
-
-1. **Data Preparation:**  
- The input audio file is processed to produce a normalized 128-channel mel spectrogram exactly as in training.
-
-2. **Model Inference:**  
- The cascaded model (consisting of the U-Net for restoration and the LSTM for parameter forecasting) produces a predicted spectrogram. During training, we observed certain channel and time-dimension adjustments (handled internally by the model).
-
-3. **Spectrogram Inversion:**  
- Currently, we use **Griffin–Lim** to invert the denormalized spectrogram (converted back from the [0, 1] normalization to its original dB scale) into audio. Griffin–Lim reconstructs phase via an iterative algorithm, but it may introduce artifacts that sound “static,” robotic, or lack clarity. Future work is planned to integrate a neural vocoder for higher-fidelity reconstruction.
-
-4. **Debugging Outputs:**  
- The script saves:
- - Input and output spectrogram images.
- - Side-by-side comparison images.
- - Predicted effect parameter statistics.
- - Input and reconstructed audio files.
- 
- The directory structure for these outputs is maintained as follows:
- 
-runs/ audio/ # Contains output WAV files (per checkpoint epoch) spectrograms/ # Contains comparison images 
-parameters/ # Contains text files with parameter statistics 
-debug/ # Contains additional intermediate debugging images
-
-
-*Note:* Although we attempted to integrate a MelGAN vocoder at one point, due to mismatches in channel dimensions the system currently defaults to Griffin–Lim for inversion.
+The inference script automatically computes:
+- SNR, PESQ, STOI metrics
+- Mel spectrogram comparisons
+- Audio output files
+- CSV metrics files
 
 ---
 
-## Major Challenges and Issues Encountered
+## Future Work
 
-1. **Time and Channel Dimension Mismatches:**  
-- Our dataset and model pipelines originally worked with 128-channel mel spectrograms. However, many pretrained vocoders (e.g., MelGAN) expect 80 channels.  
-- We had to introduce downsampling (via bilinear interpolation) for the vocoder branch, which might cause some loss of frequency resolution.
-- The model’s architecture (especially the U-Net) sometimes caused slight reductions in the time dimension. We addressed this by padding inputs so that time dimensions are divisible by 16 and later interpolating back to match the original length.
+### Genre-Aware Modeling
 
-2. **Phase Reconstruction Artifacts:**  
-- Griffin–Lim is a classic algorithm for phase reconstruction, but it is inherently iterative and can produce artifacts such as a “static” or “robotic” sound.  
-- Although the spectral content (as seen in the debug images) appears similar, the perceptual quality of the audio remains suboptimal.
+Incorporate genre awareness to align restorations with musical aesthetics:
+- Explicit genre labels via FiLM conditioning
+- Self-supervised genre inference from audio
+- Genre-tuned attention mechanisms
 
-3. **Loss Function and Parameter Prediction:**  
-- The network’s predicted parameters (for EQ, compression, reverb, and echo) tend to remain very close to zero, suggesting that the training loss might not be sufficiently forcing robust transformations.  
-- This could indicate that the loss function or training data may require additional refinement or that a perceptual loss might better drive the network toward musically meaningful modifications.
+### Stem-Aware Restoration
 
-4. **Vocoder Integration:**  
-- Efforts to integrate a MelGAN vocoder ran into issues not only with channel mismatch but also with method calls (e.g., using `.infer()`).  
-- As a compromise, our current evaluate.py uses Griffin–Lim, although future improvements will aim at integrating a neural vocoder (or even training our own) that can handle 128-channel mel spectrograms directly.
+Extend to stem-level processing:
+- Multi-source token encoders with inter-stem attention
+- Source separation frontend (Conv-TasNet, Open-Unmix)
+- Conditioned token diffusion for per-instrument enhancement
 
----
+### User-Controlled Enhancement
 
-## Future Steps
+Enable user-specified restoration goals:
+- Text prompt conditioning (e.g., "make this warmer and less compressed")
+- Reference audio conditioning
+- Latent edit vectors for directional enhancement
 
-1. **Enhance Inversion Quality:**  
-- Investigate alternative phase reconstruction techniques or neural vocoders (such as WaveGlow, MelGAN, or even a custom-trained vocoder on 128-channel mel spectrograms) to overcome the artifacts introduced by Griffin–Lim.
+### Real-Time Deployment
 
-2. **Refine Loss Functions:**  
-- Experiment with more perceptually motivated loss functions and adversarial losses to drive the network to produce outputs that are not only spectrally accurate but also sonically pleasing.
-- Consider a multi-scale loss formulation that compares spectrograms at different resolutions.
+Optimize for live applications:
+- Streaming-compatible architecture with chunk-wise processing
+- Causal upsampling for low-latency inference
+- Model compression via pruning, distillation, or quantization
 
-3. **Model Architecture Improvements:**  
-- Explore deeper or more advanced U-Net variants and incorporate attention mechanisms to better capture global context while preserving local details.
-- Experiment with separate or multi-task losses for the parameter prediction branch to explicitly force non-trivial modifications.
+### Prompt-Based Remixing
 
-4. **Dataset Expansion and Augmentation:**  
-- Expand the dataset beyond FMA Small to include more diverse genres and higher-quality masters.
-- Introduce additional augmentation strategies (e.g., random reverberation, noise injection) to simulate real-world mastering challenges.
-
-5. **End-to-End Pipeline Optimization:**  
-- Integrate the entire pipeline from raw audio to final audio output with a fully differentiable inversion stage, which would allow the model to learn the inversion process jointly with spectral restoration.
-
-6. **Subjective Evaluation:**  
-- Conduct listening tests and gather feedback from audio engineers to refine the model’s performance and validate the perceptual quality improvements.
+Advance toward zero-shot, prompt-driven systems:
+- Multimodal token fusion (audio + text + genre tags)
+- Semantic remixing (e.g., "make this more ambient")
+- Unsupervised prompt tuning for label-free intent modeling
 
 ---
 
-## Mathematical Details
+## Citation
 
-### Mel Spectrogram Conversion
+If you use this work in your research, please cite:
 
-Given an audio waveform \( y(t) \), the Short-Time Fourier Transform (STFT) is computed as:
-
-\[
-X(\omega, \tau) = \sum_{t} y(t) \cdot w(t - \tau) \cdot e^{-j\omega t}
-\]
-
-The mel spectrogram is then computed by applying a bank of mel filters \( M(f) \):
-
-\[
-S_{\text{mel}}(\tau, m) = \sum_{f} M(m, f) \cdot |X(f, \tau)|^2
-\]
-
-This spectrogram is converted to decibels via:
-
-\[
-S_{\text{dB}}(\tau, m) = 10 \log_{10}\left(S_{\text{mel}}(\tau, m) + \epsilon\right)
-\]
-
-where \(\epsilon\) is a small constant (e.g., \(1e{-}6\)).
-
-### Differentiable Audio Effects
-
-- **EQ Response:**  
-A Gaussian-like filter for a parametric EQ is modeled as:
-
-\[
-R(f, t) = 1 + G(t) \cdot e^{-\frac{(f - f_c(t))^2}{2\left(\frac{f_c(t)}{Q(t)}\right)^2}}
-\]
-
-- **Dynamic Compression:**  
-A soft knee compressor is modeled via:
-
-\[
-L_{\text{comp}}(t) = L(t) - \sigma\left(L(t) - \text{threshold}(t)\right) \cdot \left(1 - \frac{1}{\text{ratio}(t)}\right)
-\]
-
-where \(\sigma(\cdot)\) is a sigmoid function to enforce smooth transitions.
-
-### Loss Formulation
-
-The overall loss function is a weighted sum:
-
-\[
-L_{\text{total}} = \lambda_{\text{spec}} \|S_{\text{pred}} - S_{\text{target}}\|_1 + \lambda_{\text{param}} \|P_{\text{pred}} - P_{\text{target}}\|_2^2 + \lambda_{\text{percep}} \|S_{\text{pred}} - S_{\text{target}}\|_{1, \text{percep}}
-\]
-
-where the perceptual loss term \(\| \cdot \|_{1, \text{percep}}\) might be computed on multi-scale or compressed representations of the spectrogram.
+```bibtex
+@thesis{khoo2025tokenunet,
+  title={Token U-Net: Neural Audio Codec Remastering for Full-Mix Music Restoration},
+  author={Khoo, Taka},
+  school={Dartmouth College},
+  year={2025},
+  type={Honors Thesis},
+  advisor={Peter Chin},
+  consultant={Michael Casey}
+}
+```
 
 ---
 
-## Conclusion
+## Acknowledgments
 
-**Current Status:**  
-- We have implemented an end-to-end pipeline that converts raw audio into mel spectrograms, applies artificial degradations, and trains a cascaded neural network (U-Net and LSTM) to “remaster” the degraded audio.  
-- The system uses Griffin–Lim for spectrogram inversion, producing results that preserve much of the content but suffer from phase reconstruction artifacts.  
-- Challenges include channel and time-dimension mismatches, limited dynamic range in predicted parameters, and inherent limitations of Griffin–Lim.
-
-**Future Vision:**  
-- Further work will target integrating neural vocoders for improved inversion, refining loss formulations, and expanding the dataset to drive perceptually significant changes.
-- This roadmap will help guide discussions with advisors and peers, providing a clear framework for future research and collaborative problem-solving.
-
-This project represents significant progress toward automated music mastering and offers a robust platform for further experimentation and improvement.
+- **Advisors:** Peter Chin (Primary), Michael Casey (Secondary)
+- **Dartmouth LISP Lab** for computational resources
+- **Meta AI** for the EnCodec codec
+- **FMA Dataset** contributors for the training data
 
 ---
+
+## License
+
+This project is licensed under the MIT License. See LICENSE file for details.
+
+---
+
+## Contact
+
+For questions, issues, or collaborations, please open an issue on GitHub or contact the author.
+
+---
+
+**Last Updated:** May 2025
