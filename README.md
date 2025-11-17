@@ -7,11 +7,37 @@
 
 ---
 
+## 🎯 Architecture Overview
+
+The Token U-Net is a 1.08 billion parameter neural network architecture designed for token-to-token audio enhancement. Below is the complete architecture diagram:
+
+![Token U-Net Architecture](unet.png)
+
+*Complete Token U-Net architecture with encoder-decoder structure, CBAM attention, FiLM modulation, gated skip connections, and multi-head outputs for token prediction and auxiliary tasks.*
+
+---
+
+## 📁 Source Code
+
+**⚠️ IMPORTANT: The main, most recent, and complete source code is located in the `Curriculum_Tokenize_Master/` folder.**
+
+This folder contains the full implementation of:
+- ✅ EnCodec tokenization pipeline
+- ✅ Curriculum-aware training system
+- ✅ Complete Token U-Net architecture with attention mechanisms
+- ✅ All auxiliary heads (mask, gain, compression, stereo, perceptual)
+- ✅ Precomputation utilities for efficient training
+- ✅ Inference and evaluation scripts
+
+**All other folders (`src/`, `CBAMFiLMUNet + InvLSTM src/`, `DeepUnet & LSTM src/`, etc.) are experimental baselines and earlier iterations.**
+
+---
+
 ## Table of Contents
 
 1. [Introduction](#introduction)
 2. [Problem Statement](#problem-statement)
-3. [Architecture Overview](#architecture-overview)
+3. [Architecture Overview](#-architecture-overview)
 4. [Mathematical Foundations](#mathematical-foundations)
 5. [Dataset and Preprocessing](#dataset-and-preprocessing)
 6. [Training Pipeline](#training-pipeline)
@@ -59,9 +85,15 @@ Most importantly, restoration must be **feasible**: it must operate on accessibl
 
 While speech enhancement and stem-based mastering have received substantial attention, **there is no state-of-the-art system specifically designed to restore fully mixed, stemless music recordings under real-world conditions**. Most related work targets isolated effects or speech; none operate together in all five effects on degraded music without stems.
 
+### Speech vs. Music: Fundamental Differences
+
+![Speech vs Music Comparison](speech_vs_music.png)
+
+*Visual comparison showing the fundamental differences between speech (narrowband, formant-based) and music (broadband, harmonic-rich) signals. This distinction is crucial for understanding why speech-focused models fail on music restoration tasks.*
+
 ---
 
-## Architecture Overview
+## Mathematical Foundations
 
 ### Token-Based Representation
 
@@ -69,10 +101,16 @@ The core innovation of this work is operating entirely in **discrete token space
 
 #### Why Tokens?
 
-1. **Compression and Speed:** A 30-second stereo clip is reduced to only a $[16 \times 2250]$ token matrix, allowing fast training and GPU-efficient batching.
+1. **Compression and Speed:** A 30-second stereo clip is reduced to only a [16 × 2250] token matrix, allowing fast training and GPU-efficient batching.
 2. **Semantic Abstraction:** Tokens encode perceptual features such as timbre, attack, stereo width, and distortion.
 3. **Multi-Effect Compatibility:** EnCodec tokens reflect all aspects of musical structure, serving as a universal substrate for learning simultaneous restoration tasks.
 4. **Phase Preservation:** Unlike spectrograms, tokens preserve phase information implicitly through the EnCodec decoder.
+
+#### EnCodec Architecture
+
+![EnCodec Architecture](encodec.png)
+
+*EnCodec's encoder-quantizer-decoder architecture with residual vector quantization (RVQ) and adversarial discriminators for high-fidelity audio compression.*
 
 #### EnCodec Configuration
 
@@ -80,179 +118,188 @@ The core innovation of this work is operating entirely in **discrete token space
 - **Frame Rate:** 75 fps
 - **Codebooks:** 16 RVQ stages
 - **Codebook Size:** 1024 entries per codebook
-- **Token Shape:** $[16 \times 2250]$ for 30-second clips
+- **Token Shape:** [16 × 2250] for 30-second clips
 - **Total Bandwidth:** 24 kbps (stereo)
 
-### Token U-Net Architecture
+### EnCodec Tokenization Mathematics
 
-The Token U-Net is a 1.08 billion parameter U-Net architecture specifically designed for token-to-token enhancement:
+EnCodec performs K-stage residual vector quantization to discretize continuous latent embeddings:
 
-#### Core Components
+```
+z_t ≈ Σ(k=1 to K) c_k[q_k(z_t)]
+```
 
-1. **Residual Blocks with GroupNorm and GELU:**
-   $$
-   \mathbf{y} = \mathbf{x} + \mathcal{F}(\mathbf{x})
-   $$
-   where $\mathcal{F}$ is a nonlinear transformation with GroupNorm (8 groups) and GELU activations.
+where `q_k(z_t)` is the index of the codebook (token) in stage k, and N is the number of centroids per codebook (typically N = 1024). This produces a token matrix:
 
-2. **CBAM (Convolutional Block Attention Module):**
-   - **Channel Attention:**
-     $$
-     \mathbf{z}_c = \text{GAP}(\mathbf{x}) = \frac{1}{T} \sum_{t=1}^T \mathbf{x}_{:, t}
-     $$
-     $$
-     \mathbf{w}_c = \sigma(W_2 \cdot \text{ReLU}(W_1 \cdot \mathbf{z}_c)) \in (0,1)^C
-     $$
-   - **Temporal Attention:**
-     $$
-     \mathbf{z}_s = \sigma(\text{Conv1D}([\text{Avg}(\mathbf{x}); \text{Max}(\mathbf{x})])) \in (0,1)^T
-     $$
-   - **Final Output:**
-     $$
-     \mathbf{x}' = \mathbf{x} \odot \mathbf{w}_c \odot \mathbf{w}_s
-     $$
-
-3. **FiLM (Feature-wise Linear Modulation):**
-   $$
-   \text{FiLM}(\mathbf{x}) = \gamma \cdot \mathbf{x} + \beta
-   $$
-   where $\gamma, \beta \in \mathbb{R}^{C \times 1}$ are learned affine parameters.
-
-4. **Learnable Scalar Skip Gates:**
-   $$
-   \mathbf{x}^{(i)}_{\text{dec}} \leftarrow \mathbf{x}^{(i)}_{\text{dec}} + \sigma(g_i) \cdot \text{Crop}(\mathbf{x}^{(i)}_{\text{enc}})
-   $$
-   Each $g_i$ is a learned scalar parameter, passed through a sigmoid to constrain it to $(0,1)$.
-
-5. **Temporal Context Block (Dilated Convolution):**
-   $$
-   \mathbf{x}_{\text{context}} = \text{Conv1D}(\mathbf{x}; k=9, \text{dilation}=2, \text{padding}=8)
-   $$
-   This expands the effective receptive field without additional layers, enabling long-range dependency modeling for reverb tails and echo patterns.
-
-#### Dimensional Flow
-
-- **Input:** $[B, 16, T]$ token sequences
-- **Embedding:** $[B, 16, T] \rightarrow [B, 384, T]$ via learned embeddings and projection
-- **Encoder Stages** (with channel doubling and halved time resolution):
-  - $E_1: [384 \rightarrow 768]$ $(T \rightarrow T/2)$
-  - $E_2: [768 \rightarrow 1536]$ $(T/2 \rightarrow T/4)$
-  - $E_3: [1536 \rightarrow 3072]$ $(T/4 \rightarrow T/8)$
-  - $E_4: [3072 \rightarrow 6144]$ $(T/8 \rightarrow T/16)$
-- **Bottleneck:** $[6144 \rightarrow 6144]$ with CBAM, FiLM, residuals, and temporal context
-- **Decoder Stages** (with upsampling and gated skip connections):
-  - $D_1: [6144 \rightarrow 3072]$ $(T/16 \rightarrow T/8)$
-  - $D_2: [3072 \rightarrow 1536]$ $(T/8 \rightarrow T/4)$
-  - $D_3: [1536 \rightarrow 768]$ $(T/4 \rightarrow T/2)$
-  - $D_4: [768 \rightarrow 384]$ $(T/2 \rightarrow T)$
-- **Output:** $[B, 1024, 16, T]$ logits for all codebooks
-
-#### Multi-Head Output Architecture
-
-The model includes five specialized auxiliary heads:
-
-1. **Token Logit Head:** Primary prediction head producing $[B, 1024, 16, T]$ logits
-2. **Mask Head:** Dereverberation mask $\hat{\mathbf{M}} \in [0,1]^{B \times 16 \times T}$
-3. **Gain Head:** Global gain correction $g \in \mathbb{R}^{B \times 1}$
-4. **Compression Head:** Dynamics statistics $c \in \mathbb{R}^{B \times 2}$ (RMS deviation, crest factor)
-5. **Stereo Head:** Spatial imaging $s \in \mathbb{R}^{B \times 2}$ (phase coherence, width)
-6. **Perceptual Head:** Quality embedding $\hat{\mathbf{p}} \in \mathbb{R}^{B \times 8}$
-
----
-
-## Mathematical Foundations
-
-### EnCodec Tokenization
-
-EnCodec performs $K$-stage residual vector quantization to discretize continuous latent embeddings:
-
-$$
-z_t \approx \sum_{k=1}^{K} c_k[q_k(z_t)]
-$$
-
-where $q_k(z_t)$ is the index of the codebook (token) in stage $k$, and $N$ is the number of centroids per codebook (typically $N = 1024$). This produces a token matrix:
-
-$$
-\text{tokens} \in \mathbb{Z}^{K \times T}
-$$
+```
+tokens ∈ Z^(K × T)
+```
 
 The effective bit rate is:
 
-$$
-B = \frac{K \cdot \log_2(N) \cdot r}{1000}
-$$
+```
+B = (K · log₂(N) · r) / 1000
+```
 
-For our configuration: $B = \frac{16 \cdot 10 \cdot 75}{1000} = 12.0$ kbps per channel, or 24 kbps for stereo.
+For our configuration: B = (16 · 10 · 75) / 1000 = 12.0 kbps per channel, or 24 kbps for stereo.
+
+### Token U-Net Architecture Components
+
+#### 1. Residual Blocks with GroupNorm and GELU
+
+Each residual block implements:
+
+```
+y = x + F(x)
+```
+
+where F is a nonlinear transformation with GroupNorm (8 groups) and GELU activations:
+
+```
+F(x) = GELU(GN(Conv1D(Dropout(GELU(GN(Conv1D(x)))))))
+```
+
+#### 2. CBAM (Convolutional Block Attention Module)
+
+CBAM applies sequential channel and temporal attention to enhance feature representations:
+
+![CBAM Architecture](CBAM.png)
+
+*Complete CBAM module showing channel attention (top) and spatial/temporal attention (bottom) pathways.*
+
+**Channel Attention:**
+
+```
+z_c = GAP(x) = (1/T) Σ(t=1 to T) x_{:,t}
+w_c = σ(W₂ · ReLU(W₁ · z_c)) ∈ (0,1)^C
+```
+
+**Temporal Attention:**
+
+```
+z_s = σ(Conv1D([Avg(x); Max(x)])) ∈ (0,1)^T
+```
+
+**Final Output:**
+
+```
+x' = x ⊙ w_c ⊙ z_s
+```
+
+![Spatial Attention Detail](spatial_attention.png)
+
+*Detailed view of the spatial attention mechanism within CBAM, showing how max and average pooling are combined with convolution to generate spatial attention weights.*
+
+#### 3. FiLM (Feature-wise Linear Modulation)
+
+FiLM layers modulate features using learned affine parameters:
+
+![FiLM Architecture](FILM.png)
+
+*FiLM (Feature-wise Linear Modulation) layer showing how learned γ (gamma) and β (beta) parameters perform channel-wise scaling and shifting of feature maps.*
+
+```
+FiLM(x) = γ · x + β
+```
+
+where γ, β ∈ R^(C × 1) are learned affine parameters broadcast along the time axis.
+
+#### 4. Learnable Scalar Skip Gates
+
+To balance local detail and global abstraction, we use gated skip connections:
+
+```
+x^(i)_dec ← x^(i)_dec + σ(g_i) · Crop(x^(i)_enc)
+```
+
+Each g_i is a learned scalar parameter, passed through a sigmoid to constrain it to (0,1).
+
+#### 5. Temporal Context Block (Dilated Convolution)
+
+To support reverberant decay modeling and echo patterns, we include a dilated temporal context block:
+
+```
+x_context = Conv1D(x; k=9, dilation=2, padding=8)
+```
+
+This expands the effective receptive field without additional layers, enabling long-range dependency modeling for reverb tails and echo patterns.
 
 ### Loss Functions
 
 #### Primary Token Cross-Entropy Loss
 
-$$
-\mathcal{L}_{\text{CE}} = \frac{1}{B \cdot n_q \cdot T} \sum_{b=1}^{B} \sum_{q=1}^{n_q} \sum_{t=1}^{T} \text{CE}\big(\mathbf{Z}_{b,:,q,t}, \mathbf{Y}_{b,q,t} \big)
-$$
+```
+L_CE = (1/(B · n_q · T)) Σ(b=1 to B) Σ(q=1 to n_q) Σ(t=1 to T) CE(Z_{b,:,q,t}, Y_{b,q,t})
+```
 
-where $\mathbf{Z} \in \mathbb{R}^{B \times K \times n_q \times T}$ are the predicted logits and $\mathbf{Y} \in \mathbb{Z}^{B \times n_q \times T}$ are the target tokens.
+where Z ∈ R^(B × K × n_q × T) are the predicted logits and Y ∈ Z^(B × n_q × T) are the target tokens.
 
 #### Auxiliary Losses
 
 1. **Mask Head Loss (Dereverberation):**
-   $$
-   \mathcal{L}_{\text{mask}} = \frac{1}{B \cdot n_q \cdot T} \sum_{b,q,t} \text{BCE}(\hat{\mathbf{M}}_{b,q,t}, \mathbf{M}_{b,q,t})
-   $$
+   ```
+   L_mask = (1/(B · n_q · T)) Σ(b,q,t) BCE(M̂_{b,q,t}, M_{b,q,t})
+   ```
 
 2. **Gain Head Loss:**
-   $$
-   \mathcal{L}_{\text{gain}} = \frac{1}{B} \sum_{b=1}^{B} (g_b - g_b^*)^2
-   $$
+   ```
+   L_gain = (1/B) Σ(b=1 to B) (g_b - g*_b)²
+   ```
 
 3. **Compression Head Loss:**
-   $$
-   \mathcal{L}_{\text{comp}} = \| c - c^* \|_2^2
-   $$
+   ```
+   L_comp = ||c - c*||²_2
+   ```
 
 4. **Stereo Head Loss:**
-   $$
-   \mathcal{L}_{\text{stereo}} = \| s - s^* \|_2^2
-   $$
+   ```
+   L_stereo = ||s - s*||²_2
+   ```
 
 5. **Perceptual Head Loss:**
-   $$
-   \mathcal{L}_{\text{perc}} = \frac{1}{B} \sum_{b=1}^{B} \left\| \hat{\mathbf{p}}_b - \mathbf{p}_b \right\|_2^2
-   $$
+   ```
+   L_perc = (1/B) Σ(b=1 to B) ||p̂_b - p_b||²_2
+   ```
 
 6. **Mel Spectrogram Loss:**
-   $$
-   \mathcal{L}_{\text{mel}} = \| \log(\hat{M} + \epsilon) - \log(M + \epsilon) \|_1
-   $$
+   ```
+   L_mel = ||log(M̂ + ε) - log(M + ε)||₁
+   ```
 
 7. **STFT Spectral Loss:**
-   $$
-   \mathcal{L}_{\text{STFT}} = \frac{1}{B} \sum_{b=1}^{B} \left\| |\text{STFT}(\hat{y}_b)| - |\text{STFT}(y_b)| \right\|_2^2
-   $$
+   ```
+   L_STFT = (1/B) Σ(b=1 to B) |||STFT(ŷ_b)| - |STFT(y_b)|||²_2
+   ```
 
 #### Combined Loss Function
 
-$$
-\begin{aligned}
-\mathcal{L}_{\text{total}} = &\;
-\mathcal{L}_{\text{CE}} 
-+ \lambda_{\text{mask}} \mathcal{L}_{\text{mask}}
-+ \lambda_{\text{perc}} \mathcal{L}_{\text{perc}} \\
-& + \lambda_{\text{gain}} \mathcal{L}_{\text{gain}}
-+ \lambda_{\text{stereo}} \mathcal{L}_{\text{stereo}}
-+ \lambda_{\text{comp}} \mathcal{L}_{\text{comp}} \\
-& + \lambda_{\text{STFT}} \mathcal{L}_{\text{STFT}}
-+ \lambda_{\text{time}} \mathcal{L}_{\text{time}} 
-+ \lambda_{\text{mel}} \mathcal{L}_{\text{mel}} 
-+ \lambda_{\text{tok\_spec}} \mathcal{L}_{\text{tok\_spec}}
-\end{aligned}
-$$
+The total training loss combines all components:
 
-Typical weight values:
-- $\lambda_{\text{mask}} = \lambda_{\text{perc}} = \lambda_{\text{gain}} = \lambda_{\text{stereo}} = \lambda_{\text{comp}} = 0.1$
-- $\lambda_{\text{STFT}} = 0.1$, $\lambda_{\text{time}} = 0.1$
-- $\lambda_{\text{mel}} = 0.01$, $\lambda_{\text{tok\_spec}} = 0.05$
+```
+L_total = L_CE 
+        + λ_mask · L_mask
+        + λ_perc · L_perc
+        + λ_gain · L_gain
+        + λ_stereo · L_stereo
+        + λ_comp · L_comp
+        + λ_STFT · L_STFT
+        + λ_time · L_time
+        + λ_mel · L_mel
+        + λ_tok_spec · L_tok_spec
+```
+
+**Typical weight values:**
+- λ_mask = λ_perc = λ_gain = λ_stereo = λ_comp = 0.1
+- λ_STFT = 0.1, λ_time = 0.1
+- λ_mel = 0.01, λ_tok_spec = 0.05
+
+![Auxiliary Losses Over Training](auxiliary_weighted_losses.png)
+
+*Progression of all auxiliary losses (mask, perceptual, gain, stereo, compression) throughout curriculum training. Note the stage-wise resets and overall decreasing trend.*
+
+![All Weighted Losses](all_weighted_losses.png)
+
+*Complete loss landscape showing primary cross-entropy loss alongside all weighted auxiliary components during training.*
 
 ### Audio Degradation Models
 
@@ -260,63 +307,66 @@ Typical weight values:
 
 A parametric EQ filter is modeled as:
 
-$$
-H_{\text{eq}}(f) = 1 + \frac{G}{1 + jQ\left( \frac{f}{f_0} - \frac{f_0}{f} \right)}
-$$
+```
+H_eq(f) = 1 + G / (1 + jQ(f/f₀ - f₀/f))
+```
 
 with parameters:
-- Center frequency: $f_c \sim \mathcal{U}(300, 5000)$ Hz
-- Quality factor: $Q \sim \mathcal{U}(0.5, 2.0)$
-- Gain: $g \sim \mathcal{U}(-6, +6)$ dB
+- Center frequency: f_c ~ U(300, 5000) Hz
+- Quality factor: Q ~ U(0.5, 2.0)
+- Gain: g ~ U(-6, +6) dB
 
 #### Dynamic Range Compression
 
 A soft-knee compressor:
 
-$$
-y(t) = 
-\begin{cases}
-x(t), & \text{if } |x(t)| < \theta \\
-\theta + \frac{|x(t)| - \theta}{r}, & \text{otherwise}
-\end{cases}
-$$
+```
+y(t) = {
+    x(t),                    if |x(t)| < θ
+    θ + (|x(t)| - θ)/r,     otherwise
+}
+```
 
 with parameters:
-- Threshold: $\theta \sim \mathcal{U}(-24, -6)$ dB
-- Ratio: $r \sim \mathcal{U}(1.5, 4.0)$
-- Makeup gain: $m \sim \mathcal{U}(0, 3)$ dB
+- Threshold: θ ~ U(-24, -6) dB
+- Ratio: r ~ U(1.5, 4.0)
+- Makeup gain: m ~ U(0, 3) dB
 
 #### Reverb
 
 Convolution with an exponentially decaying impulse response:
 
-$$
-x_{\text{reverb}}(t) = (x * h_{\text{IR}})(t)
-$$
+```
+x_reverb(t) = (x * h_IR)(t)
+```
 
-where $h_{\text{IR}} \sim \text{exponential decay}$ with:
-- Decay constant: $\tau \sim \mathcal{U}(0.2, 1.0)$
-- Impulse duration: $T \sim \mathcal{U}(50, 400)$ ms
+where h_IR ~ exponential decay with:
+- Decay constant: τ ~ U(0.2, 1.0)
+- Impulse duration: T ~ U(50, 400) ms
 
 #### Echo
 
 Delayed and attenuated copy of the signal:
 
-$$
-x_{\text{echo}}(t) = x(t) + \alpha \cdot x(t - \tau)
-$$
+```
+x_echo(t) = x(t) + α · x(t - τ)
+```
 
 with parameters:
-- Delay: $\tau \sim \mathcal{U}(100, 250)$ ms
-- Attenuation: $\alpha \sim \mathcal{U}(0.1, 0.5)$
+- Delay: τ ~ U(100, 250) ms
+- Attenuation: α ~ U(0.1, 0.5)
 
 #### Gain Mismatch
 
 Simple global amplitude scaling:
 
-$$
-\tilde{x}[n] = 10^{g/20} \cdot x[n], \quad g \sim \mathcal{U}(-3, +3) \text{ dB}
-$$
+```
+x̃[n] = 10^(g/20) · x[n],  g ~ U(-3, +3) dB
+```
+
+![Degradation Stack](degradation_stack.png)
+
+*Illustration of how multiple degradations compound in real-world audio, creating entangled artifacts that require joint restoration.*
 
 ---
 
@@ -335,6 +385,10 @@ We use the **Free Music Archive (FMA) Medium** dataset, which contains 25,000 tr
 
 Our training curriculum consists of five progressively difficult stages:
 
+![Curriculum Stages](curriculum.png)
+
+*Visualization of the curriculum learning progression, showing how degradations are introduced progressively from identity mappings to full random combinations.*
+
 1. **Stage 0 – Identity:** Clean audio paired with itself; model must reconstruct tokens exactly
 2. **Stage 1 – Single Effect:** One degradation (EQ, gain, compression, reverb, or echo)
 3. **Stage 2 – Double Effects:** Two degradations applied in random order
@@ -347,17 +401,25 @@ Stages 3 and 4 have "stronger" variants with widened parameter ranges to enforce
 
 Each audio pair is preprocessed into a structured PyTorch `.pt` file containing:
 
-- **X, Y:** Tokenized degraded and clean inputs $\in \mathbb{Z}^{n_q \times T}$
-- **scales:** Per-frame scale factors from EnCodec $\in \mathbb{R}^{T}$
-- **Y_stft_mag:** STFT magnitudes of clean audio $\in \mathbb{R}^{n_q \times F \times T}$ (FP16)
-- **mel_spec:** Mel spectrogram of clean waveform $\in \mathbb{R}^{M \times T}$ (FP16)
+- **X, Y:** Tokenized degraded and clean inputs ∈ Z^(n_q × T)
+- **scales:** Per-frame scale factors from EnCodec ∈ R^T
+- **Y_stft_mag:** STFT magnitudes of clean audio ∈ R^(n_q × F × T) (FP16)
+- **mel_spec:** Mel spectrogram of clean waveform ∈ R^(M × T) (FP16)
 - **metadata:** Sample rate, bandwidth, degradation parameters, SHA-256 hashes
 - **wav_o, wav_m:** Cached original and degraded waveforms (optional)
+
+![Token Bundle Structure](lumchbox.png)
+
+*Visual representation of the "frozen lunchbox" .pt file format, showing all precomputed features bundled together for efficient training.*
 
 This "frozen lunchbox" design enables:
 - **40× speedup** in data loading compared to on-the-fly encoding
 - Full reproducibility via SHA-256 hashes
 - Support for all loss functions without recomputation
+
+![Preprocessing Pipeline](structure.png)
+
+*Complete pipeline from raw audio to precomputed token bundles, showing the demastering, tokenization, and feature extraction stages.*
 
 ### Preprocessing Pipeline
 
@@ -379,17 +441,21 @@ The training pipeline uses a **curriculum learning** approach where degradations
 2. **Better Generalization:** Gradual exposure prevents overfitting to specific degradation patterns
 3. **Interpretable Progress:** Each stage builds on previous knowledge
 
+![Training Dynamics](stages_stuff.png)
+
+*Training dynamics showing learning rate schedules, batch size adjustments, gradient accumulation, and recovery from OOM/NaN events throughout curriculum stages.*
+
 ### Stage Advancement Logic
 
 Stage advancement is controlled by dual criteria:
 
 1. **Validation Loss Plateau Detection:**
-   - Exponential moving average: $\hat{L}_t^{\text{val}} = \alpha L_t^{\text{val}} + (1 - \alpha)\hat{L}_{t-1}^{\text{val}}$
-   - Plateau detected when: $|\hat{L}_t^{\text{val}} - \hat{L}_{t-k}^{\text{val}}| < \delta$ for $p$ consecutive epochs
-   - Minimum epochs per stage: $t_{\min} = \max(10, \lfloor N_{\text{train}} / 100 \rfloor)$
+   - Exponential moving average: L̂_t^val = α L_t^val + (1 - α) L̂_{t-1}^val
+   - Plateau detected when: |L̂_t^val - L̂_{t-k}^val| < δ for p consecutive epochs
+   - Minimum epochs per stage: t_min = max(10, ⌊N_train / 100⌋)
 
 2. **Training Loss Stagnation:**
-   - Fallback criterion: $\sigma(L_{t-n}^{\text{train}}, \dots, L_t^{\text{train}}) < \epsilon$ for $n=8$ epochs
+   - Fallback criterion: σ(L_{t-n}^train, ..., L_t^train) < ε for n=8 epochs
 
 ### Training Configuration
 
@@ -408,7 +474,7 @@ Stage advancement is controlled by dual criteria:
 
 #### Optimization
 
-- **Optimizer:** AdamW with $\beta_1=0.9$, $\beta_2=0.999$, weight decay $10^{-4}$
+- **Optimizer:** AdamW with β₁=0.9, β₂=0.999, weight decay 10⁻⁴
 - **Learning Rate Schedule:** OneCycleLR for Stage 0, CosineAnnealingLR for later stages
 - **Mixed Precision:** FP16 training with automatic mixed precision (AMP)
 - **Gradient Clipping:** L2 norm clipping at threshold 10.0
@@ -417,7 +483,7 @@ Stage advancement is controlled by dual criteria:
 #### Loss Weight Activation
 
 Loss weights are activated progressively:
-- **Stage 0:** Only $\mathcal{L}_{\text{CE}}$
+- **Stage 0:** Only L_CE
 - **Stage 1+:** Audio-domain and auxiliary losses incrementally activated
 - **Stage 3-4:** All loss terms enabled
 
@@ -445,21 +511,21 @@ Loss weights are activated progressively:
 We evaluate restoration quality using multiple metrics:
 
 1. **SNR (Signal-to-Noise Ratio):**
-   $$
-   \text{SNR}(x, \hat{x}) = 10 \cdot \log_{10} \left( \frac{\sum_t x(t)^2}{\sum_t (x(t) - \hat{x}(t))^2} \right)
-   $$
+   ```
+   SNR(x, x̂) = 10 · log₁₀(Σ_t x(t)² / Σ_t (x(t) - x̂(t))²)
+   ```
 
-2. **PESQ (Perceptual Evaluation of Speech Quality):** ITU-T P.862-based, range $[-0.5, 4.5]$
+2. **PESQ (Perceptual Evaluation of Speech Quality):** ITU-T P.862-based, range [-0.5, 4.5]
 
 3. **STOI (Short-Time Objective Intelligibility):**
-   $$
-   \text{STOI}(x, \hat{x}) = \frac{1}{K} \sum_{k=1}^{K} \text{corr}(x_k, \hat{x}_k)
-   $$
+   ```
+   STOI(x, x̂) = (1/K) Σ(k=1 to K) corr(x_k, x̂_k)
+   ```
 
 4. **ERLE (Echo Return Loss Enhancement):**
-   $$
-   \text{ERLE}(t) = 10 \cdot \log_{10} \left( \frac{\mathbb{E}[y^2(t)]}{\mathbb{E}[\hat{e}^2(t)]} \right)
-   $$
+   ```
+   ERLE(t) = 10 · log₁₀(E[y²(t)] / E[ê²(t)])
+   ```
 
 ### Performance Summary
 
@@ -487,6 +553,12 @@ We evaluate restoration quality using multiple metrics:
 - Specialist models excel on their target effect but underperform on others
 - Token U-Net shows lowest variance (0.047) and highest robustness index (0.7883)
 
+### Token Usage Analysis
+
+![Token Histogram](histogram.png)
+
+*Token usage histograms showing the distribution of EnCodec tokens before and after restoration. The model learns to utilize a broader token vocabulary, indicating improved representation capacity.*
+
 ### Qualitative Results
 
 Listening tests on 30 tracks with mixed degradations revealed:
@@ -500,10 +572,10 @@ Listening tests on 30 tracks with mixed degradations revealed:
 
 ## Code Structure
 
-### Core Modules
+### Core Modules (Curriculum_Tokenize_Master/)
 
 ```
-src/
+Curriculum_Tokenize_Master/
 ├── token_unet.py          # Main Token U-Net architecture
 ├── token_train.py         # Curriculum-aware training script
 ├── token_dataset.py       # PyTorch dataset for token pairs
@@ -567,7 +639,7 @@ def train_curriculum(args):
 
 ### Experimental Baselines
 
-The repository includes several baseline implementations:
+The repository includes several baseline implementations for comparison:
 
 1. **Baseline Test/:** Early spectrogram-based U-Net experiments
 2. **DeepUnet & LSTM src/:** Deep U-Net with LSTM parameter prediction
@@ -609,19 +681,19 @@ The repository includes several baseline implementations:
 2. **Generate curriculum degradation stages:**
    ```bash
    # Stage 0 (Identity)
-   python src/demastering.py --stage 0 --seed 42
+   python Curriculum_Tokenize_Master/demastering.py --stage 0 --seed 42
    
    # Stage 1 (Single effect)
-   python src/demastering.py --stage 1 --seed 42
+   python Curriculum_Tokenize_Master/demastering.py --stage 1 --seed 42
    
    # Stage 3 with stronger parameters
-   python src/demastering.py --stage 3 --stronger --seed 42
+   python Curriculum_Tokenize_Master/demastering.py --stage 3 --stronger --seed 42
    ```
 
 3. **Precompute tokens:**
    ```bash
-   python src/precompute_tokens.py --stage stage0_identity
-   python src/precompute_tokens.py --stage stage1_single
+   python Curriculum_Tokenize_Master/precompute_tokens.py --stage stage0_identity
+   python Curriculum_Tokenize_Master/precompute_tokens.py --stage stage1_single
    # ... repeat for all stages
    ```
 
@@ -629,7 +701,7 @@ The repository includes several baseline implementations:
 
 **Full curriculum training:**
 ```bash
-python src/token_train.py \
+python Curriculum_Tokenize_Master/token_train.py \
     --base_dir experiments/curriculums \
     --output_dir CurriculumTraining \
     --resume_from_checkpoint path/to/checkpoint.pt  # Optional
@@ -637,7 +709,7 @@ python src/token_train.py \
 
 **Train until specific stage:**
 ```bash
-python src/token_train.py \
+python Curriculum_Tokenize_Master/token_train.py \
     --base_dir experiments/curriculums \
     --output_dir CurriculumTraining \
     --until_stage stage3_triple
@@ -655,7 +727,7 @@ python src/token_train.py \
 
 **Run inference on a stage:**
 ```bash
-python src/token_inference.py \
+python Curriculum_Tokenize_Master/token_inference.py \
     --checkpoint path/to/best_model.pt \
     --stage_dir experiments/curriculums/stage4_full_stronger \
     --output_dir Inference_Results/stage4
@@ -757,4 +829,4 @@ For questions, issues, or collaborations, please open an issue on GitHub or cont
 
 ---
 
-**Last Updated:** May 2025
+**Last Updated:** November 2025
