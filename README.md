@@ -508,6 +508,10 @@ $$\mathcal{L}_{\text{CE}}$$
 
 ## Evaluation and Results
 
+The values in this section are the thesis' reported experimental results. See
+the linked thesis for dataset splits, protocols, and interpretation; they should
+not be read as independently reproduced third-party benchmark results.
+
 ### Quantitative Metrics
 
 We evaluate restoration quality using multiple metrics:
@@ -651,8 +655,8 @@ The repository includes several baseline implementations for comparison:
 
 1. **Clone the repository:**
    ```bash
-   git clone https://github.com/takakhoo/AI_Neural_AudioCodec_Remastering.git
-   cd AI_Neural_AudioCodec_Remastering
+   git clone https://github.com/takakhoo/Automatic-Music-Mastering-Using-Deep-Learning.git
+   cd Automatic-Music-Mastering-Using-Deep-Learning
    ```
 
 2. **Install dependencies:**
@@ -660,12 +664,8 @@ The repository includes several baseline implementations for comparison:
    pip install -r requirements.txt
    ```
 
-3. **Install EnCodec:**
-   ```bash
-   cd externals/encodec
-   pip install -e .
-   cd ../..
-   ```
+3. **Install EnCodec:** `requirements.txt` installs the published `encodec`
+   package used by the tokenization pipeline.
 
 ### Data Preparation
 
