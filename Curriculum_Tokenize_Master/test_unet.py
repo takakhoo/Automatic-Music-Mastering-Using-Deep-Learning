@@ -44,7 +44,7 @@ def test_unet(stage: str = "stage1_single", sample_idx: int = 0, save_audio: boo
     
     # Forward pass
     with torch.no_grad():
-        logits = model(X)  # [1, K, n_q, T]
+        logits = model(X)["logits"]  # [1, K, n_q, T]
         pred = logits.argmax(dim=1)  # [1, n_q, T]
     
     # Verify token validity
@@ -127,4 +127,4 @@ def test_unet(stage: str = "stage1_single", sample_idx: int = 0, save_audio: boo
 
 if __name__ == "__main__":
     # Test with stage1_single (single effect) by default
-    test_unet(stage="stage1_single", sample_idx=0, save_audio=True) 
+    test_unet(stage="stage1_single", sample_idx=0, save_audio=True)

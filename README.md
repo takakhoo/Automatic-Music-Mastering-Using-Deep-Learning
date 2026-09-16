@@ -2,8 +2,14 @@
 
 **AI Computer Engineering Honors Thesis at Dartmouth College Thayer School of Engineering**  
 **Author:** Taka Khoo  
-**Primary Advisor:** Peter Chin  
+**Primary Advisor:** Peter Chin
 **Secondary Consultant:** Michael Casey
+
+> **Status:** completed honors-thesis research artifact. The repository includes
+> the implemented architecture, preprocessing, training, inference, and thesis
+> materials. Reproducing the full reported training run requires the FMA data,
+> precomputed EnCodec tokens, and high-memory accelerator hardware; CI exercises
+> a reduced CPU forward pass instead.
 
 ---
 
@@ -17,7 +23,7 @@ The Token U-Net is a 1.08 billion parameter neural network architecture designed
 
 ---
 
-## Complete Thesis Document
+## Thesis document
 
 **📄 [View Full Thesis PDF (253 pages)](KHOO_THESIS.pdf)**
 
@@ -40,7 +46,7 @@ The complete 253-page honors thesis document is available for download and conta
 
 ## Source Code
 
-**IMPORTANT: The main, most recent, and complete source code is located in the `Curriculum_Tokenize_Master/` folder.**
+The maintained research implementation is in `Curriculum_Tokenize_Master/`.
 
 This folder contains the full implementation of:
 - EnCodec tokenization pipeline
