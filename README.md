@@ -1,4 +1,4 @@
-# Token U-Net: Neural Audio Codec Remastering for Full-Mix Music Restoration
+# Token U-Net for Neural Audio Restoration
 
 **AI Computer Engineering Honors Thesis at Dartmouth College Thayer School of Engineering**  
 **Author:** Taka Khoo  
@@ -79,15 +79,11 @@ This folder contains the full implementation of:
 
 ### Motivation
 
-Over the past decade, music production has become increasingly democratized. Affordable digital tools and platforms like TikTok and SoundCloud have empowered countless bedroom producers to create and share music globally. However, achieving a polished, professional sound remains a significant challenge. Mixing and especially finalizing audio for clarity, loudness, and playback consistency remains a black box for many creators.
-
-Most creators work with a final bounced mix, where all effects are flattened into a single stereo file, leaving no room for detailed post-production. Conventional post-production workflows often depend on access to individual stems and the expertise of trained engineers using specialized hardware or software. However, the majority of modern creators only have access to a single stereo mix—often recorded in non-ideal conditions—and lack the tools or knowledge to perform nuanced adjustments.
-
-This thesis addresses a critical gap: **Can we design a system that restores and enhances fully mixed music audio, even when it is degraded and stemless, in a generalizable, accessible way?**
-
-### Vision for Accessible Audio Intelligence
-
-This work imagines a future where intelligent audio cleanup, handling things like echo, muddiness, or reverb, is available to any creator, regardless of environment or experience. Our system, which combines token representations, curriculum learning, and perceptually aligned objectives, aims to move beyond hand-crafted signal chains and towards learned audio enhancement built for realism and accessibility.
+A stereo mix entangles instruments, effects, dynamics, and room artifacts in
+one signal. This thesis studies whether a learned model can reverse controlled
+degradations directly from that mix without stems. The implementation combines
+EnCodec tokens, a large U-Net, curriculum degradation stages, and perceptual
+objectives.
 
 ---
 
@@ -106,11 +102,17 @@ Fully mixed music tracks, or "bounced" files, embed not just the instruments and
 3. **Non-professional conditions:** Audio may be clipped, distorted, or captured on consumer-grade equipment.
 4. **No definitive target:** Multiple "clean" versions may be equally perceptually valid, complicating supervision.
 
-Most importantly, restoration must be **feasible**: it must operate on accessible hardware, provide interpretable outputs, and outperform existing approaches in perceptual quality and objective metrics.
+The evaluation therefore separates architectural feasibility from quality
+claims: reduced CPU checks validate tensor contracts, while the reported
+restoration results come from the documented accelerator-backed training runs.
 
 ### The Research Gap
 
-While speech enhancement and stem-based mastering have received substantial attention, **there is no state-of-the-art system specifically designed to restore fully mixed, stemless music recordings under real-world conditions**. Most related work targets isolated effects or speech; none operate together in all five effects on degraded music without stems.
+Speech enhancement and stem-based mastering provide adjacent methods, but they
+do not directly evaluate the five-degradation, stemless-music setting used in
+this study. The repository makes no claim to establish a field-wide state of
+the art; its contribution is the implemented token-domain formulation and the
+recorded thesis experiments.
 
 ### Speech vs. Music: Fundamental Differences
 
@@ -661,8 +663,8 @@ The repository includes several baseline implementations for comparison:
 
 1. **Clone the repository:**
    ```bash
-   git clone https://github.com/takakhoo/Automatic-Music-Mastering-Using-Deep-Learning.git
-   cd Automatic-Music-Mastering-Using-Deep-Learning
+   git clone https://github.com/takakhoo/neural-audio-restoration.git
+   cd neural-audio-restoration
    ```
 
 2. **Install dependencies:**
@@ -673,6 +675,19 @@ The repository includes several baseline implementations for comparison:
 3. **Install EnCodec:** `requirements.txt` installs the published `encodec`
    package used by the tokenization pipeline.
 
+### Verification
+
+Run the dependency-light model contract check before downloading the dataset:
+
+```bash
+python Curriculum_Tokenize_Master/smoke_test.py
+```
+
+Verified on CPU on September 16, 2026. The check constructs a reduced Token
+U-Net, runs a forward pass, and validates the token logits, auxiliary heads,
+and tensor shapes. CI runs the same boundary; it does not represent full-model
+training quality or throughput.
+
 ### Data Preparation
 
 1. **Download and Setup FMA Medium dataset:**
@@ -680,17 +695,9 @@ The repository includes several baseline implementations for comparison:
    The Free Music Archive (FMA) dataset is used for training. To install and set it up:
    
    ```bash
-   # Clone the FMA repository
-   git clone https://github.com/mdeff/fma.git
-   cd fma
-   
-   # Install FMA dependencies
-   pip install --upgrade pip setuptools wheel
-   pip install numpy==1.12.1  # workaround for resampy
-   pip install -r requirements.txt
-   
-   # Download FMA Medium dataset (25,000 tracks, 30s each, 22 GiB)
-   cd data
+   # Download FMA Medium (25,000 tracks, 30 seconds each, about 22 GiB)
+   mkdir -p data/raw/fma_medium
+   cd data/raw/fma_medium
    curl -O https://os.unil.cloud.switch.ch/fma/fma_metadata.zip
    curl -O https://os.unil.cloud.switch.ch/fma/fma_medium.zip
    
@@ -701,10 +708,8 @@ The repository includes several baseline implementations for comparison:
    # Uncompress
    unzip fma_metadata.zip
    unzip fma_medium.zip
-   cd ../..
-   
-   # Place FMA Medium dataset in the project's data directory
-   # The expected path is: data/raw/fma_medium/fma_medium/
+   cd ../../..
+   # Audio should now resolve beneath data/raw/fma_medium/fma_medium/
    ```
    
    For more information about the FMA dataset, visit: https://github.com/mdeff/fma
