@@ -22,10 +22,8 @@ import sys
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from torch.utils.data import DataLoader
 from torch.utils.checkpoint import checkpoint  # Explicit import for clarity
 from einops import rearrange
-from token_dataset import TokenPairDataset, pad_collate
 from token_constants import PAD  # Import PAD from constants
 import math  # For ceil division
 
@@ -341,6 +339,11 @@ def print_model_stats(model):
 # ────── Self-test: run "python src/token_unet.py" ───────────
 if __name__ == "__main__":
     """
+    # Audio dataset dependencies are optional for importing and testing the
+    # model itself. Load them only for this data-backed command-line check.
+    from torch.utils.data import DataLoader
+    from token_dataset import TokenPairDataset, pad_collate
+
     Quick test of the model's shape transformations and block connections.
     Loads a small batch from TokenPairDataset and runs a forward pass.
     To test with bottleneck or different dropout, edit below:
