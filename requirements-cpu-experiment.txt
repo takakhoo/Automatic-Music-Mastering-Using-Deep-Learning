@@ -1,0 +1,4 @@
+# Reproduced with Python 3.13 on CPU. Full audio pipeline uses requirements.txt.
+torch==2.14.0
+einops==0.8.2
+matplotlib==3.11.2

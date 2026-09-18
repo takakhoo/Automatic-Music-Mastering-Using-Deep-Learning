@@ -9,7 +9,66 @@
 > the implemented architecture, preprocessing, training, inference, and thesis
 > materials. Reproducing the full reported training run requires the FMA data,
 > precomputed EnCodec tokens, and high-memory accelerator hardware; CI exercises
-> a reduced CPU forward pass instead.
+> a reduced CPU forward pass and a synthetic learning ablation instead.
+
+## Reproduce a real training loop on CPU
+
+Start here before downloading FMA or allocating a large GPU. This runs the
+actual `TokenUNet` implementation at reduced width, performs training and
+held-out evaluation, saves/reloads a checkpoint, and compares an optional
+full-resolution skip against the original architecture across three seeds.
+
+**This is a synthetic token-shift diagnostic, not a music-restoration result.**
+The tokens are random integers, not EnCodec audio. It tests whether the model
+can learn a simple frame-local mapping without merely memorizing training data.
+
+![Paired CPU architecture ablation](results/cpu-ablation/comparison.png)
+
+| Seed | Original held-out accuracy | Full-resolution skip held-out accuracy |
+|---|---:|---:|
+| 7 | 15.53% | 93.46% |
+| 19 | 15.53% | 89.75% |
+| 41 | 20.02% | 93.55% |
+
+Both variants have **27,312 parameters**, use the same generated train/test
+split per seed, train for 200 Adam updates, and share all hyperparameters.
+Uniform chance is 12.5%; copying the shifted input scores 0%. The original
+architecture reaches 99.7–100% training accuracy while failing to generalize
+well on this diagnostic. The optional skip retains pre-downsampling features
+without adding parameters. This motivates a future audio ablation; it does
+not establish improved SNR, listening quality, or thesis benchmark performance.
+
+```bash
+# Python 3.13; CPU only. No dataset, codec model, or external account needed.
+python -m venv .venv
+source .venv/bin/activate
+python -m pip install -r requirements-cpu-experiment.txt
+python -m unittest discover -s Curriculum_Tokenize_Master -p test_model_contract.py -v
+python Curriculum_Tokenize_Master/compare_cpu.py
+```
+
+Outputs: [comparison JSON](results/cpu-ablation/comparison.json), per-seed
+learning curves and metrics, and locally generated `synthetic-demo.pt` files.
+These tiny synthetic checkpoints are not pretrained audio restorers. CI reruns
+the full paired experiment and uploads artifacts. Numerical results may vary
+slightly between CPU/PyTorch builds; the recorded environment is in each JSON.
+
+### Model fixes covered by regression tests
+
+- Short and odd-length inputs are right-padded and cropped, not stretched in
+  time by nearest-neighbor interpolation.
+- Small channel counts no longer create a zero-channel CBAM layer.
+- Padding tokens have zero embeddings, rather than borrowing codebook token 0.
+- Invalid shapes, token ranges, and hyperparameters fail with clear errors.
+- Checkpointed and ordinary backward passes have matching finite gradients.
+- Per-layer debug printing is opt-in (`debug=True`).
+- `full_resolution_skip=True` is **opt-in**; the default architecture and
+  state-dictionary keys stay compatible. Save this flag with checkpoint config.
+
+Padding is not fully length-invariant: GroupNorm and global pooling still
+depend on the padded temporal extent. Use consistent batching/cropping when
+comparing variable-length examples. Full-data training and perceptual audio
+evaluation remain separate from this CPU test.
 
 ---
 

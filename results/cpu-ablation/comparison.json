@@ -1,0 +1,56 @@
+[
+  {
+    "seed": 7,
+    "variant": "original",
+    "parameters": 27312,
+    "train_accuracy": 0.9990234375,
+    "held_out_accuracy": 0.1552734375,
+    "held_out_cross_entropy": 4.0793962478637695,
+    "checkpoint_max_error": 0.0
+  },
+  {
+    "seed": 7,
+    "variant": "full-resolution-skip",
+    "parameters": 27312,
+    "train_accuracy": 1.0,
+    "held_out_accuracy": 0.9345703125,
+    "held_out_cross_entropy": 0.23171930015087128,
+    "checkpoint_max_error": 0.0
+  },
+  {
+    "seed": 19,
+    "variant": "original",
+    "parameters": 27312,
+    "train_accuracy": 1.0,
+    "held_out_accuracy": 0.1552734375,
+    "held_out_cross_entropy": 4.5555901527404785,
+    "checkpoint_max_error": 0.0
+  },
+  {
+    "seed": 19,
+    "variant": "full-resolution-skip",
+    "parameters": 27312,
+    "train_accuracy": 1.0,
+    "held_out_accuracy": 0.8974609375,
+    "held_out_cross_entropy": 0.34208813309669495,
+    "checkpoint_max_error": 0.0
+  },
+  {
+    "seed": 41,
+    "variant": "original",
+    "parameters": 27312,
+    "train_accuracy": 0.9970703125,
+    "held_out_accuracy": 0.2001953125,
+    "held_out_cross_entropy": 3.6643412113189697,
+    "checkpoint_max_error": 0.0
+  },
+  {
+    "seed": 41,
+    "variant": "full-resolution-skip",
+    "parameters": 27312,
+    "train_accuracy": 1.0,
+    "held_out_accuracy": 0.935546875,
+    "held_out_cross_entropy": 0.2372385859489441,
+    "checkpoint_max_error": 0.0
+  }
+]

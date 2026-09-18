@@ -4,15 +4,25 @@ on:
   push:
   pull_request:
 
+permissions:
+  contents: read
+
 jobs:
   token-unet-smoke-test:
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
-          python-version: "3.12"
+          python-version: "3.13"
           cache: pip
-      - run: python -m pip install torch einops
+      - run: python -m pip install -r requirements-cpu-experiment.txt
       - run: python -m compileall -q Curriculum_Tokenize_Master src
       - run: python Curriculum_Tokenize_Master/smoke_test.py
+      - run: python -m unittest discover -s Curriculum_Tokenize_Master -p test_model_contract.py -v
+      - run: python Curriculum_Tokenize_Master/compare_cpu.py --output /tmp/token-ablation
+      - uses: actions/upload-artifact@v4
+        with:
+          name: synthetic-token-ablation-not-audio-benchmark
+          path: /tmp/token-ablation

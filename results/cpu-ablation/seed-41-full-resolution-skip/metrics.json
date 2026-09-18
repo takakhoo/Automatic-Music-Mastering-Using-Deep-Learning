@@ -1,0 +1,170 @@
+{
+  "task": "synthetic modular token shift reversal; NOT audio quality",
+  "seed": 41,
+  "steps": 200,
+  "python": "3.13.11",
+  "torch": "2.14.0",
+  "config": {
+    "n_q": 2,
+    "k": 8,
+    "base_dim": 16,
+    "depth": 1,
+    "dropout": 0.0,
+    "full_resolution_skip": true
+  },
+  "parameters": 27312,
+  "training_sequences": 32,
+  "held_out_sequences": 16,
+  "tokens_per_sequence": 64,
+  "optimizer": {
+    "name": "Adam",
+    "learning_rate": 0.003,
+    "batch_size": 8,
+    "gradient_clip_norm": 5.0
+  },
+  "copy_input_accuracy": 0.0,
+  "uniform_chance_accuracy": 0.125,
+  "before_training": {
+    "cross_entropy": 3.2732043266296387,
+    "accuracy": 0.1513671875
+  },
+  "after_training": {
+    "train": {
+      "cross_entropy": 0.01591484248638153,
+      "accuracy": 1.0
+    },
+    "held_out": {
+      "cross_entropy": 0.2372385859489441,
+      "accuracy": 0.935546875
+    }
+  },
+  "checkpoint_roundtrip_max_error": 0.0,
+  "history": [
+    {
+      "step": 1,
+      "batch_loss": 3.282555103302002,
+      "cross_entropy": 3.166417360305786,
+      "accuracy": 0.166015625
+    },
+    {
+      "step": 10,
+      "batch_loss": 2.399487018585205,
+      "cross_entropy": 2.4119534492492676,
+      "accuracy": 0.244140625
+    },
+    {
+      "step": 20,
+      "batch_loss": 1.5939866304397583,
+      "cross_entropy": 1.7935025691986084,
+      "accuracy": 0.376953125
+    },
+    {
+      "step": 30,
+      "batch_loss": 1.2114182710647583,
+      "cross_entropy": 1.3457874059677124,
+      "accuracy": 0.5283203125
+    },
+    {
+      "step": 40,
+      "batch_loss": 0.7539898753166199,
+      "cross_entropy": 1.0250444412231445,
+      "accuracy": 0.6796875
+    },
+    {
+      "step": 50,
+      "batch_loss": 0.5742875337600708,
+      "cross_entropy": 0.7963021397590637,
+      "accuracy": 0.78125
+    },
+    {
+      "step": 60,
+      "batch_loss": 0.33756712079048157,
+      "cross_entropy": 0.6320893168449402,
+      "accuracy": 0.830078125
+    },
+    {
+      "step": 70,
+      "batch_loss": 0.2596399784088135,
+      "cross_entropy": 0.5207133889198303,
+      "accuracy": 0.8662109375
+    },
+    {
+      "step": 80,
+      "batch_loss": 0.1539592444896698,
+      "cross_entropy": 0.44575193524360657,
+      "accuracy": 0.888671875
+    },
+    {
+      "step": 90,
+      "batch_loss": 0.12858207523822784,
+      "cross_entropy": 0.39360037446022034,
+      "accuracy": 0.90234375
+    },
+    {
+      "step": 100,
+      "batch_loss": 0.07823046296834946,
+      "cross_entropy": 0.3579199016094208,
+      "accuracy": 0.9150390625
+    },
+    {
+      "step": 110,
+      "batch_loss": 0.07387031614780426,
+      "cross_entropy": 0.3301478922367096,
+      "accuracy": 0.91796875
+    },
+    {
+      "step": 120,
+      "batch_loss": 0.04691619798541069,
+      "cross_entropy": 0.3095431625843048,
+      "accuracy": 0.9189453125
+    },
+    {
+      "step": 130,
+      "batch_loss": 0.048226043581962585,
+      "cross_entropy": 0.2938876748085022,
+      "accuracy": 0.919921875
+    },
+    {
+      "step": 140,
+      "batch_loss": 0.03152027726173401,
+      "cross_entropy": 0.281249076128006,
+      "accuracy": 0.92578125
+    },
+    {
+      "step": 150,
+      "batch_loss": 0.03430149704217911,
+      "cross_entropy": 0.27110567688941956,
+      "accuracy": 0.927734375
+    },
+    {
+      "step": 160,
+      "batch_loss": 0.02273283340036869,
+      "cross_entropy": 0.2622013986110687,
+      "accuracy": 0.9326171875
+    },
+    {
+      "step": 170,
+      "batch_loss": 0.02559209056198597,
+      "cross_entropy": 0.2541162371635437,
+      "accuracy": 0.9365234375
+    },
+    {
+      "step": 180,
+      "batch_loss": 0.017263218760490417,
+      "cross_entropy": 0.2475574016571045,
+      "accuracy": 0.931640625
+    },
+    {
+      "step": 190,
+      "batch_loss": 0.01980765536427498,
+      "cross_entropy": 0.24227909743785858,
+      "accuracy": 0.935546875
+    },
+    {
+      "step": 200,
+      "batch_loss": 0.01360002625733614,
+      "cross_entropy": 0.2372385859489441,
+      "accuracy": 0.935546875
+    }
+  ]
+}

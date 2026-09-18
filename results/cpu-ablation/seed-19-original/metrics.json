@@ -1,0 +1,170 @@
+{
+  "task": "synthetic modular token shift reversal; NOT audio quality",
+  "seed": 19,
+  "steps": 200,
+  "python": "3.13.11",
+  "torch": "2.14.0",
+  "config": {
+    "n_q": 2,
+    "k": 8,
+    "base_dim": 16,
+    "depth": 1,
+    "dropout": 0.0,
+    "full_resolution_skip": false
+  },
+  "parameters": 27312,
+  "training_sequences": 32,
+  "held_out_sequences": 16,
+  "tokens_per_sequence": 64,
+  "optimizer": {
+    "name": "Adam",
+    "learning_rate": 0.003,
+    "batch_size": 8,
+    "gradient_clip_norm": 5.0
+  },
+  "copy_input_accuracy": 0.0,
+  "uniform_chance_accuracy": 0.125,
+  "before_training": {
+    "cross_entropy": 2.102220296859741,
+    "accuracy": 0.1240234375
+  },
+  "after_training": {
+    "train": {
+      "cross_entropy": 0.0568399541079998,
+      "accuracy": 1.0
+    },
+    "held_out": {
+      "cross_entropy": 4.5555901527404785,
+      "accuracy": 0.1552734375
+    }
+  },
+  "checkpoint_roundtrip_max_error": 0.0,
+  "history": [
+    {
+      "step": 1,
+      "batch_loss": 2.0913517475128174,
+      "cross_entropy": 2.096329927444458,
+      "accuracy": 0.1259765625
+    },
+    {
+      "step": 10,
+      "batch_loss": 2.011962890625,
+      "cross_entropy": 2.0876078605651855,
+      "accuracy": 0.1328125
+    },
+    {
+      "step": 20,
+      "batch_loss": 1.9367527961730957,
+      "cross_entropy": 2.087833881378174,
+      "accuracy": 0.140625
+    },
+    {
+      "step": 30,
+      "batch_loss": 1.8299731016159058,
+      "cross_entropy": 2.1019797325134277,
+      "accuracy": 0.138671875
+    },
+    {
+      "step": 40,
+      "batch_loss": 1.6959067583084106,
+      "cross_entropy": 2.129502773284912,
+      "accuracy": 0.15625
+    },
+    {
+      "step": 50,
+      "batch_loss": 1.5484939813613892,
+      "cross_entropy": 2.187626361846924,
+      "accuracy": 0.150390625
+    },
+    {
+      "step": 60,
+      "batch_loss": 1.375254511833191,
+      "cross_entropy": 2.280040979385376,
+      "accuracy": 0.158203125
+    },
+    {
+      "step": 70,
+      "batch_loss": 1.2018839120864868,
+      "cross_entropy": 2.384983539581299,
+      "accuracy": 0.15625
+    },
+    {
+      "step": 80,
+      "batch_loss": 1.008211374282837,
+      "cross_entropy": 2.50105881690979,
+      "accuracy": 0.1640625
+    },
+    {
+      "step": 90,
+      "batch_loss": 0.854592502117157,
+      "cross_entropy": 2.644379138946533,
+      "accuracy": 0.1689453125
+    },
+    {
+      "step": 100,
+      "batch_loss": 0.7155316472053528,
+      "cross_entropy": 2.8030483722686768,
+      "accuracy": 0.1591796875
+    },
+    {
+      "step": 110,
+      "batch_loss": 0.5854352116584778,
+      "cross_entropy": 2.961775779724121,
+      "accuracy": 0.1513671875
+    },
+    {
+      "step": 120,
+      "batch_loss": 0.4614008069038391,
+      "cross_entropy": 3.1463470458984375,
+      "accuracy": 0.154296875
+    },
+    {
+      "step": 130,
+      "batch_loss": 0.3810390830039978,
+      "cross_entropy": 3.3280997276306152,
+      "accuracy": 0.16015625
+    },
+    {
+      "step": 140,
+      "batch_loss": 0.28130006790161133,
+      "cross_entropy": 3.4999730587005615,
+      "accuracy": 0.1513671875
+    },
+    {
+      "step": 150,
+      "batch_loss": 0.2368408441543579,
+      "cross_entropy": 3.6949939727783203,
+      "accuracy": 0.1591796875
+    },
+    {
+      "step": 160,
+      "batch_loss": 0.16796423494815826,
+      "cross_entropy": 3.864305019378662,
+      "accuracy": 0.15625
+    },
+    {
+      "step": 170,
+      "batch_loss": 0.1403222680091858,
+      "cross_entropy": 4.03108024597168,
+      "accuracy": 0.154296875
+    },
+    {
+      "step": 180,
+      "batch_loss": 0.08879894763231277,
+      "cross_entropy": 4.246739387512207,
+      "accuracy": 0.1552734375
+    },
+    {
+      "step": 190,
+      "batch_loss": 0.08211863040924072,
+      "cross_entropy": 4.386837005615234,
+      "accuracy": 0.1552734375
+    },
+    {
+      "step": 200,
+      "batch_loss": 0.05275939777493477,
+      "cross_entropy": 4.5555901527404785,
+      "accuracy": 0.1552734375
+    }
+  ]
+}

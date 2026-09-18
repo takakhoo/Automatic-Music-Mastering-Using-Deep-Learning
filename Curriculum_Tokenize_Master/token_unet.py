@@ -38,8 +38,8 @@ class CBAM(nn.Module):
         # Channel attention
         self.mlp = nn.Sequential(
             nn.AdaptiveAvgPool1d(1),
-            nn.Conv1d(ch, ch // reduction, 1), nn.ReLU(),
-            nn.Conv1d(ch // reduction, ch, 1)
+            nn.Conv1d(ch, max(1, ch // reduction), 1), nn.ReLU(),
+            nn.Conv1d(max(1, ch // reduction), ch, 1)
         )
         # Spatial attention
         self.conv = nn.Conv1d(2, 1, kernel, padding=kernel//2)
@@ -94,8 +94,19 @@ class TokenUNet(nn.Module):
     - Robust to different curriculum stages
     """
     def __init__(self, n_q: int, k: int = K, base_dim: int = BASE_DIM, depth: int = DEPTH,
-                 checkpointing: bool = False, use_bottleneck: bool = False, dropout: float = 0.10):
+                 checkpointing: bool = False, use_bottleneck: bool = False, dropout: float = 0.10,
+                 debug: bool = False, full_resolution_skip: bool = False):
         super().__init__()
+        if not all(isinstance(v, int) and v > 0 for v in (n_q, k, base_dim, depth)):
+            raise ValueError("n_q, k, base_dim, and depth must be positive integers")
+        if base_dim % 8:
+            raise ValueError("base_dim must be divisible by 8 for GroupNorm")
+        if not 0 <= dropout < 1:
+            raise ValueError("dropout must be in [0, 1)")
+        self.debug = debug
+        # Opt-in research variant. False preserves the historical architecture;
+        # the new path retains frame-level features before strided compression.
+        self.full_resolution_skip = full_resolution_skip
         self.n_q, self.k, self.depth = n_q, k, depth
         self.checkpointing = checkpointing
         self.use_bottleneck = use_bottleneck
@@ -199,6 +210,8 @@ class TokenUNet(nn.Module):
 
     def set_dropout(self, new_dropout: float):
         """Dynamically set dropout rate for all ResBlocks and mid Dropout."""
+        if not 0 <= new_dropout < 1:
+            raise ValueError("dropout must be in [0, 1)")
         self.dropout = new_dropout
         # Update encoder
         for blk in self.enc:
@@ -223,6 +236,10 @@ class TokenUNet(nn.Module):
                         if isinstance(m, nn.Dropout):
                             m.p = new_dropout
 
+    def _debug(self, message):
+        if self.debug:
+            print(message)
+
     def forward(self, tok: torch.LongTensor):
         """
         Args:
@@ -236,73 +253,86 @@ class TokenUNet(nn.Module):
                 'stereo': [B, 2] stereo width and interchannel phase
                 'compression': [B, 2] RMS deviation and crest factor
         """
-        B, n_q, T = tok.shape
-        print(f"[Input] tok: {tok.shape} (B, n_q, T)")
-        assert n_q == self.n_q, f"Expected {self.n_q} codebooks, got {n_q}"
+        if tok.ndim != 3 or tok.dtype != torch.long:
+            raise ValueError("tokens must be a torch.long tensor of shape [B, n_q, T]")
+        B, n_q, original_length = tok.shape
+        if B == 0 or original_length == 0 or n_q != self.n_q:
+            raise ValueError(f"expected nonempty tokens with {self.n_q} codebooks")
+        if torch.any((tok != PAD) & ((tok < 0) | (tok >= self.k))):
+            raise ValueError(f"token indices must lie in [0, {self.k}) or equal PAD")
+        # Pad instead of resizing time: each downsampling block needs an even
+        # length. Crop logits back afterward, preserving token-time alignment.
+        extra = (-original_length) % (2 ** self.depth)
+        if extra:
+            tok = F.pad(tok, (0, extra), value=PAD)
+        T = tok.size(-1)
+        self._debug(f"[Input] tok: {tok.shape} (B, n_q, T)")
         
         # Create mask for padding tokens and zero them out before embedding
         pad_mask = tok.eq(PAD)
         tok_safe = tok.masked_fill(pad_mask, 0)  # Zero out padded positions
-        print(f"[After PAD mask] tok_safe: {tok_safe.shape}")
+        self._debug(f"[After PAD mask] tok_safe: {tok_safe.shape}")
         
         # Token embedding with offset
         offset = (torch.arange(n_q, device=tok.device) * self.k)[None, :, None]
         idx = offset + tok_safe  # Add offset after zeroing padded positions
-        x = rearrange(self.emb(idx), 'b q t d -> b (q d) t')
-        print(f"[After Embedding+Rearrange] x: {x.shape} (B, n_q*emb_q, T)")
+        embedded = self.emb(idx).masked_fill(pad_mask.unsqueeze(-1), 0)
+        x = rearrange(embedded, 'b q t d -> b (q d) t')
+        self._debug(f"[After Embedding+Rearrange] x: {x.shape} (B, n_q*emb_q, T)")
         x = self.inp(x)  # Project to exact base_dim
-        print(f"[After Input Projection] x: {x.shape} (B, base_dim, T)")
+        input_features = x
+        self._debug(f"[After Input Projection] x: {x.shape} (B, base_dim, T)")
         
         # Encoder with gradient checkpointing
         skips = []
         for i, blk in enumerate(self.enc):
             x_in = x
-            print(f"[Encoder {i+1} Input] {x_in.shape}")
+            self._debug(f"[Encoder {i+1} Input] {x_in.shape}")
             if self.checkpointing:
-                x = checkpoint(blk, x)
+                x = checkpoint(blk, x, use_reentrant=False)
             else:
                 x = blk(x)
-            print(f"[Encoder {i+1} Output] {x.shape}")
+            self._debug(f"[Encoder {i+1} Output] {x.shape}")
             skips.append(x)
         
         # Mid block with gradient checkpointing
         x_in = x
         if self.checkpointing:
-            x = checkpoint(self.mid, x)
+            x = checkpoint(self.mid, x, use_reentrant=False)
         else:
             x = self.mid(x)
-        print(f"[Mid Block] in: {x_in.shape} out: {x.shape}")
+        self._debug(f"[Mid Block] in: {x_in.shape} out: {x.shape}")
         
         # Temporal context block (dilated Conv1d)
         x_in = x
         x = self.temporal_context(x)
-        print(f"[Temporal Context] in: {x_in.shape} out: {x.shape}")
+        self._debug(f"[Temporal Context] in: {x_in.shape} out: {x.shape}")
         
         # Optional bottleneck
         if self.bottleneck is not None:
             x_in = x
             x = self.bottleneck(x)
-            print(f"[Bottleneck] in: {x_in.shape} out: {x.shape}")
+            self._debug(f"[Bottleneck] in: {x_in.shape} out: {x.shape}")
         
         # Decoder with gradient checkpointing
         for i, blk in enumerate(self.dec):
             skip = skips.pop()
             gate = torch.sigmoid(self.skip_gates[-(i+1)])
             skip_cropped = self._crop(skip, x.size(-1))
-            print(f"[Decoder {i+1} skip] {skip.shape} cropped: {skip_cropped.shape} gate: {gate.item():.4f}")
+            if self.debug:
+                self._debug(f"[Decoder {i+1} skip] {skip.shape} cropped: {skip_cropped.shape} gate: {gate.item():.4f}")
             x_in = x
-            print(f"[Decoder {i+1} Input] {x_in.shape}")
+            self._debug(f"[Decoder {i+1} Input] {x_in.shape}")
             if self.checkpointing:
-                x = checkpoint(blk, x + gate * skip_cropped)
+                x = checkpoint(blk, x + gate * skip_cropped, use_reentrant=False)
             else:
                 x = blk(x + gate * skip_cropped)
-            print(f"[Decoder {i+1} Output] {x.shape}")
+            self._debug(f"[Decoder {i+1} Output] {x.shape}")
         
-        # Ensure output length matches input
-        if x.size(-1) != T:
-            print(f"[Interpolate] x: {x.shape} -> T: {T}")
-            x = F.interpolate(x, size=T, mode='nearest')
-            print(f"[After Interpolate] x: {x.shape}")
+        # Remove only the added right-padding; do not stretch token positions.
+        x = x[..., :original_length]
+        if self.full_resolution_skip:
+            x = x + input_features[..., :original_length]
         
         # Mask head (soft mask)
         mask = torch.sigmoid(self.mask_head(x))  # [B, n_q, T]
@@ -321,10 +351,10 @@ class TokenUNet(nn.Module):
         logits = []
         for qi, head in enumerate(self.heads):
             head_out = head(x)              # [B, K, T]
-            print(f"[Head {qi}] in: {x.shape} out: {head_out.shape}")
+            self._debug(f"[Head {qi}] in: {x.shape} out: {head_out.shape}")
             logits.append(head_out.unsqueeze(2))   # keep 3-D
         out = torch.cat(logits, dim=2)            # (B, K, n_q, T)
-        print(f"[Output] logits: {out.shape} (B, K, n_q, T)")
+        self._debug(f"[Output] logits: {out.shape} (B, K, n_q, T)")
         return {'logits': out, 'mask': mask, 'perceptual': perceptual_params, 'gain': gain, 'stereo': stereo, 'compression': compression}
 
     def get_skip_gate_penalty(self) -> torch.Tensor:
@@ -338,12 +368,12 @@ def print_model_stats(model):
 
 # ────── Self-test: run "python src/token_unet.py" ───────────
 if __name__ == "__main__":
-    """
     # Audio dataset dependencies are optional for importing and testing the
     # model itself. Load them only for this data-backed command-line check.
     from torch.utils.data import DataLoader
     from token_dataset import TokenPairDataset, pad_collate
 
+    """
     Quick test of the model's shape transformations and block connections.
     Loads a small batch from TokenPairDataset and runs a forward pass.
     To test with bottleneck or different dropout, edit below:

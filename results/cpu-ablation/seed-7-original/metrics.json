@@ -1,0 +1,170 @@
+{
+  "task": "synthetic modular token shift reversal; NOT audio quality",
+  "seed": 7,
+  "steps": 200,
+  "python": "3.13.11",
+  "torch": "2.14.0",
+  "config": {
+    "n_q": 2,
+    "k": 8,
+    "base_dim": 16,
+    "depth": 1,
+    "dropout": 0.0,
+    "full_resolution_skip": false
+  },
+  "parameters": 27312,
+  "training_sequences": 32,
+  "held_out_sequences": 16,
+  "tokens_per_sequence": 64,
+  "optimizer": {
+    "name": "Adam",
+    "learning_rate": 0.003,
+    "batch_size": 8,
+    "gradient_clip_norm": 5.0
+  },
+  "copy_input_accuracy": 0.0,
+  "uniform_chance_accuracy": 0.125,
+  "before_training": {
+    "cross_entropy": 2.1658735275268555,
+    "accuracy": 0.1474609375
+  },
+  "after_training": {
+    "train": {
+      "cross_entropy": 0.10109448432922363,
+      "accuracy": 0.9990234375
+    },
+    "held_out": {
+      "cross_entropy": 4.0793962478637695,
+      "accuracy": 0.1552734375
+    }
+  },
+  "checkpoint_roundtrip_max_error": 0.0,
+  "history": [
+    {
+      "step": 1,
+      "batch_loss": 2.1601064205169678,
+      "cross_entropy": 2.135817289352417,
+      "accuracy": 0.134765625
+    },
+    {
+      "step": 10,
+      "batch_loss": 1.9996790885925293,
+      "cross_entropy": 2.0980000495910645,
+      "accuracy": 0.13671875
+    },
+    {
+      "step": 20,
+      "batch_loss": 1.8967812061309814,
+      "cross_entropy": 2.0930519104003906,
+      "accuracy": 0.15234375
+    },
+    {
+      "step": 30,
+      "batch_loss": 1.760371208190918,
+      "cross_entropy": 2.0959601402282715,
+      "accuracy": 0.15234375
+    },
+    {
+      "step": 40,
+      "batch_loss": 1.649488925933838,
+      "cross_entropy": 2.1374292373657227,
+      "accuracy": 0.13671875
+    },
+    {
+      "step": 50,
+      "batch_loss": 1.4925577640533447,
+      "cross_entropy": 2.1818089485168457,
+      "accuracy": 0.1455078125
+    },
+    {
+      "step": 60,
+      "batch_loss": 1.4008026123046875,
+      "cross_entropy": 2.243727684020996,
+      "accuracy": 0.1474609375
+    },
+    {
+      "step": 70,
+      "batch_loss": 1.2070157527923584,
+      "cross_entropy": 2.330378770828247,
+      "accuracy": 0.146484375
+    },
+    {
+      "step": 80,
+      "batch_loss": 1.1103438138961792,
+      "cross_entropy": 2.4085445404052734,
+      "accuracy": 0.1533203125
+    },
+    {
+      "step": 90,
+      "batch_loss": 0.9598569869995117,
+      "cross_entropy": 2.5161707401275635,
+      "accuracy": 0.1533203125
+    },
+    {
+      "step": 100,
+      "batch_loss": 0.8706015944480896,
+      "cross_entropy": 2.6203651428222656,
+      "accuracy": 0.16796875
+    },
+    {
+      "step": 110,
+      "batch_loss": 0.6821214556694031,
+      "cross_entropy": 2.7670180797576904,
+      "accuracy": 0.16796875
+    },
+    {
+      "step": 120,
+      "batch_loss": 0.6217617392539978,
+      "cross_entropy": 2.9038784503936768,
+      "accuracy": 0.1669921875
+    },
+    {
+      "step": 130,
+      "batch_loss": 0.48455893993377686,
+      "cross_entropy": 3.0283000469207764,
+      "accuracy": 0.1650390625
+    },
+    {
+      "step": 140,
+      "batch_loss": 0.46337056159973145,
+      "cross_entropy": 3.197495222091675,
+      "accuracy": 0.15625
+    },
+    {
+      "step": 150,
+      "batch_loss": 0.3401643633842468,
+      "cross_entropy": 3.3256192207336426,
+      "accuracy": 0.1484375
+    },
+    {
+      "step": 160,
+      "batch_loss": 0.2849089801311493,
+      "cross_entropy": 3.4916348457336426,
+      "accuracy": 0.15625
+    },
+    {
+      "step": 170,
+      "batch_loss": 0.20817559957504272,
+      "cross_entropy": 3.6404964923858643,
+      "accuracy": 0.15234375
+    },
+    {
+      "step": 180,
+      "batch_loss": 0.17374606430530548,
+      "cross_entropy": 3.7872140407562256,
+      "accuracy": 0.1533203125
+    },
+    {
+      "step": 190,
+      "batch_loss": 0.12191733717918396,
+      "cross_entropy": 3.950529098510742,
+      "accuracy": 0.154296875
+    },
+    {
+      "step": 200,
+      "batch_loss": 0.11400759220123291,
+      "cross_entropy": 4.0793962478637695,
+      "accuracy": 0.1552734375
+    }
+  ]
+}
